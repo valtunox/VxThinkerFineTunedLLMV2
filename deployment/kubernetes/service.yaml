@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: va-llm-v1-service
+  namespace: va-llm-v1
+  labels:
+    app: va-llm-v1
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: va-llm-v1
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: va-llm-v1-secrets
+  namespace: va-llm-v1
+type: Opaque
+stringData:
+  # Database Configuration
+  database-host: "db.example.com"
+  database-port: "5432"
+  database-name: "recruitment"
+  database-user: "postgres"
+  database-password: "CHANGE_ME"
+  
+  # API Keys (optional)
+  google-api-key: ""
+  openai-api-key: ""
+  anthropic-api-key: ""
+  apollo-api-key: ""
+  
+  # AWS Configuration (optional)
+  aws-access-key-id: ""
+  aws-secret-access-key: ""
+  s3-bucket: ""

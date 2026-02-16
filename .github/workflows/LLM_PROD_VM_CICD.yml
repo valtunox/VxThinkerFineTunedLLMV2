@@ -1,0 +1,489 @@
+# name: CICD Pipeline FastAPI to PROD VM (Docker) 1
+
+# on:
+#   push:
+#     branches:
+#       - master
+#       - main
+#       - dev
+#   workflow_dispatch:
+
+# env:
+#   ECR_REGISTRY: xxxxxxx.dkr.ecr.us-east-1.amazonaws.com
+#   ECR_REPOSITORY: valtunox/fastapi
+#   AWS_REGION: us-east-1
+#   PYTHON_VERSION: '3.11'
+#   VM_HOST_PROD: ${{ secrets.VM_HOST_PROD }}
+#   VM_APP_DIR: /home/ubuntu/fastapi-backend
+
+# jobs:
+#   build:
+#     name: Build Docker Image
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set lowercase repository owner
+#         id: repo
+#         run: echo "owner_lowercase=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       - name: Ensure ECR repository exists
+#         run: |
+#           if ! aws ecr describe-repositories --repository-names "${{ env.ECR_REPOSITORY }}" --region "${{ env.AWS_REGION }}" 2>/dev/null; then
+#             echo "📦 ECR repository ${{ env.ECR_REPOSITORY }} not found; creating it..."
+#             aws ecr create-repository --repository-name "${{ env.ECR_REPOSITORY }}" --region "${{ env.AWS_REGION }}"
+#             echo "✅ ECR repository created."
+#           else
+#             echo "✅ ECR repository ${{ env.ECR_REPOSITORY }} already exists."
+#           fi
+
+#       - name: Log in to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Extract metadata
+#         id: meta
+#         uses: docker/metadata-action@v5
+#         with:
+#           images: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+#           tags: |
+#             type=ref,event=branch
+#             type=ref,event=pr
+#             type=semver,pattern={{version}}
+#             type=semver,pattern={{major}}.{{minor}}
+#             type=sha,prefix={{branch}}-
+#             type=raw,value=latest,enable={{is_default_branch}}
+
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: .
+#           file: ./Dockerfile
+#           push: true
+#           tags: ${{ steps.meta.outputs.tags }}
+#           labels: ${{ steps.meta.outputs.labels }}
+#           # cache-from: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache
+#           # cache-to: type=registry,ref=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:buildcache,mode=max
+#           build-args: |
+#             PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+
+#       - name: Build Summary
+#         run: |
+#           echo "## 🐳 Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "**Registry:** AWS ECR (${{ env.ECR_REGISTRY }})" >> $GITHUB_STEP_SUMMARY
+#           echo "**Image:** ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}" >> $GITHUB_STEP_SUMMARY
+#           echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+#           echo "**Python Version:** ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
+
+#   deploy:
+#     name: Deploy to VM
+#     runs-on: ubuntu-latest
+#     needs: build
+    
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set lowercase repository owner
+#         id: repo
+#         run: echo "owner_lowercase=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+#       - name: Create deployment package
+#         run: |
+#           mkdir -p deploy
+#           cp docker-compose.yml deploy/
+#           # app/data for container volume ./app/data:/app/data
+#           mkdir -p deploy/app/data
+#           cp -r data/* deploy/app/data/ 2>/dev/null || true
+          
+#           # Create .env file for production
+#           cat > deploy/.env << EOF
+#           # FastAPI Configuration
+#           ENVIRONMENT=production
+#           PORT=8000
+#           HOST=0.0.0.0
+          
+#           # Docker Image (AWS ECR)
+#           DOCKER_IMAGE=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+          
+#           # Database (PostgreSQL - separate instance)
+#           DATABASE_HOST=${{ secrets.DB_HOST }}
+#           DATABASE_PORT=${{ secrets.DB_PORT }}
+#           DATABASE_NAME=${{ secrets.DB_NAME  }}
+#           DATABASE_USER=${{ secrets.DB_USER }}
+#           DATABASE_PASSWORD=${{ secrets.DB_PASSWORD }}
+          
+#           # API Keys
+#           GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY || '' }}
+#           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+#           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
+#           APOLLO_API_KEY=${{ secrets.APOLLO_API_KEY || '' }}
+          
+#           # AWS Configuration
+#           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+#           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+#           AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
+#           S3_BUCKET=${{ secrets.S3_BUCKET || '' }}
+#           EOF
+          
+#           echo "✅ Deployment package created"
+
+#       # Load CSV data from S3 bucket (data.braincargo.com) into app/data before deploy
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+#       - name: Sync CSV data from S3 to app/data
+#         run: |
+#           S3_DATA_BUCKET="${{ secrets.S3_DATA_BUCKET || 'data.braincargo.com' }}"
+#           DATA_DIR="deploy/app/data"
+#           echo "📥 Syncing CSV and data from s3://${S3_DATA_BUCKET}/ to ${DATA_DIR}/..."
+#           aws s3 sync "s3://${S3_DATA_BUCKET}/" "${DATA_DIR}/" \
+#             --exclude "*" \
+#             --include "*.csv" \
+#             --include "job_descriptions/*"
+#           echo "📋 Contents of ${DATA_DIR}:"
+#           ls -la "${DATA_DIR}/" || true
+#           echo "✅ S3 data sync complete"
+#         continue-on-error: true
+
+#       - name: Test VM connectivity
+#         continue-on-error: true
+#         run: |
+#           echo "🔍 Testing connectivity to VM at ${{ env.VM_HOST_PROD }}:${{ secrets.VM_SSH_PORT || 22 }}..."
+#           for i in {1..3}; do
+#             if timeout 5 bash -c "echo > /dev/tcp/${{ env.VM_HOST_PROD }}/${{ secrets.VM_SSH_PORT || 22 }}" 2>/dev/null; then
+#               echo "✅ VM is reachable on attempt $i"
+#               exit 0
+#             fi
+#             echo "⏳ Attempt $i/3 failed, retrying in 5 seconds..."
+#             sleep 5
+#           done
+#           echo "⚠️  VM connectivity test failed - this may indicate network/firewall issues"
+#           echo "💡 Troubleshooting tips:"
+#           echo "   1. Verify VM is running and accessible"
+#           echo "   2. Check firewall/security group allows SSH from GitHub Actions IPs"
+#           echo "   3. Verify VM_HOST_PROD secret is correct"
+#           echo "   4. Try using IP address instead of hostname if using DNS"
+          
+#       - name: Copy files to VM (Attempt 1)
+#         id: scp_attempt_1
+#         uses: appleboy/scp-action@v0.1.7
+#         continue-on-error: true
+#         with:
+#           host: ${{ env.VM_HOST_PROD }}
+#           username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+#           key: ${{ secrets.VM_SSH_KEY_PROD }}
+#           port: ${{ secrets.VM_SSH_PORT || 22 }}
+#           source: "deploy/*"
+#           target: "${{ env.VM_APP_DIR }}"
+#           strip_components: 1
+#           overwrite: true
+#           debug: true
+          
+#       - name: Wait before retry
+#         if: steps.scp_attempt_1.outcome == 'failure'
+#         run: |
+#           echo "⏳ Waiting 10 seconds before retry..."
+#           sleep 10
+          
+#       - name: Copy files to VM (Attempt 2)
+#         id: scp_attempt_2
+#         if: steps.scp_attempt_1.outcome == 'failure'
+#         uses: appleboy/scp-action@v0.1.7
+#         continue-on-error: true
+#         with:
+#           host: ${{ env.VM_HOST_PROD }}
+#           username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+#           key: ${{ secrets.VM_SSH_KEY_PROD }}
+#           port: ${{ secrets.VM_SSH_PORT || 22 }}
+#           source: "deploy/*"
+#           target: "${{ env.VM_APP_DIR }}"
+#           strip_components: 1
+#           overwrite: true
+#           debug: true
+          
+#       - name: Fail if SCP unsuccessful after retries
+#         if: steps.scp_attempt_1.outcome == 'failure' && steps.scp_attempt_2.outcome == 'failure'
+#         run: |
+#           echo "❌ Failed to copy files to VM after 2 attempts"
+#           echo ""
+#           echo "🔍 Troubleshooting checklist:"
+#           echo "  ✓ VM is running and accessible: ${{ env.VM_HOST_PROD }}"
+#           echo "  ✓ SSH port is open: ${{ secrets.VM_SSH_PORT || 22 }}"
+#           echo "  ✓ Firewall/security group allows SSH from GitHub Actions IPs"
+#           echo "  ✓ SSH key is correct: VM_SSH_KEY_PROD secret"
+#           echo "  ✓ VM_HOST_PROD secret contains correct IP/hostname"
+#           echo ""
+#           echo "💡 Common solutions:"
+#           echo "  1. Verify VM is running: ssh -i key.pem ubuntu@${{ env.VM_HOST_PROD }}"
+#           echo "  2. Check firewall rules allow port ${{ secrets.VM_SSH_PORT || 22 }}"
+#           echo "  3. If using hostname, try using IP address directly"
+#           echo "  4. Check GitHub Actions IP ranges are whitelisted"
+#           exit 1
+
+#       - name: Deploy on VM via SSH
+#         env:
+#           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           AWS_REGION: ${{ env.AWS_REGION }}
+#           ECR_REGISTRY: ${{ env.ECR_REGISTRY }}
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ env.VM_HOST_PROD }}
+#           username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+#           key: ${{ secrets.VM_SSH_KEY_PROD }}
+#           port: ${{ secrets.VM_SSH_PORT || 22 }}
+#           # Allow time for ECR pull (large image) + compose down/up + status (prevents "Run Command Timeout")
+#           command_timeout: 45m
+#           envs: AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_REGION,ECR_REGISTRY
+#           script: |
+#             set -e
+            
+#             echo "================================================"
+#             echo "🚀 Starting FastAPI Deployment"
+#             echo "================================================"
+            
+#             echo "🔄 Navigating to application directory..."
+#             cd ${{ env.VM_APP_DIR }}
+            
+#             echo "🔐 Logging into AWS ECR (using AWS CLI on VM)..."
+#             if ! command -v aws >/dev/null 2>&1; then
+#               echo "❌ AWS CLI not found on VM. Install it: sudo apt-get update && sudo apt-get install -y awscli"
+#               exit 1
+#             fi
+#             if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+#               echo "❌ AWS credentials not received. Check GitHub Actions secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)."
+#               exit 1
+#             fi
+#             aws ecr get-login-password --region "$AWS_REGION" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
+            
+#             echo "📦 Pulling latest Docker image..."
+#             sudo docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest
+            
+#             echo "🛑 Stopping existing containers..."
+#             sudo docker-compose down --remove-orphans || true
+            
+#             echo "🧹 Cleaning up old images and volumes..."
+#             sudo docker image prune -f
+#             sudo docker volume prune -f || true
+            
+#             echo "🚀 Starting new containers..."
+#             sudo docker-compose up -d --force-recreate
+            
+#             echo "⏳ Waiting for containers to be healthy..."
+#             sleep 15
+            
+#             echo "================================================"
+#             echo "📊 Docker Status & Information"
+#             echo "================================================"
+            
+#             echo ""
+#             echo "🐳 All Running Containers:"
+#             sudo docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}"
+            
+#             echo ""
+#             echo "📦 Docker Images:"
+#             sudo docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" | grep -E "REPOSITORY|fastapi|braincargo"
+            
+#             echo ""
+#             echo "📋 Compose Services Status:"
+#             sudo docker-compose ps
+            
+#             echo ""
+#             echo "📋 Container logs (last 20 lines):"
+#             sudo docker-compose logs --tail=20
+            
+#             echo ""
+#             echo "🔍 Image Details:"
+#             sudo docker inspect --format='Image: {{.Config.Image}} | Created: {{.Created}} | Size: {{.Size}} bytes' $(sudo docker ps -q --filter name=fastapibackend) || echo "Container inspection skipped"
+            
+#             echo ""
+#             echo "================================================"
+#             echo "🎉 Deployment completed successfully!"
+#             echo "================================================"
+
+#       - name: Health Check
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ env.VM_HOST_PROD }}
+#           username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+#           key: ${{ secrets.VM_SSH_KEY_PROD }}
+#           port: ${{ secrets.VM_SSH_PORT || 22 }}
+#           script: |
+#             echo "🏥 Performing health check..."
+            
+#             # Wait for application to fully start
+#             sleep 10
+            
+#             # Check if container is running
+#             if sudo docker ps | grep -q fastapibackend; then
+#               echo "✅ FastAPI container is running"
+#             else
+#               echo "❌ FastAPI container is not running"
+#               sudo docker logs fastapibackend || true
+#               exit 1
+#             fi
+            
+#             # Check application health endpoint
+#             MAX_RETRIES=5
+#             RETRY_COUNT=0
+            
+#             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+#               if curl -f http://localhost:8000/health > /dev/null 2>&1; then
+#                 echo "✅ Application is responding on /health endpoint"
+#                 break
+#               else
+#                 RETRY_COUNT=$((RETRY_COUNT+1))
+#                 echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, retrying..."
+#                 sleep 5
+#               fi
+#             done
+            
+#             if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+#               echo "❌ Application health check failed after $MAX_RETRIES attempts"
+#               sudo docker logs fastapibackend
+#               exit 1
+#             fi
+            
+#             # Check API docs endpoint
+#             if curl -f http://localhost:8000/docs > /dev/null 2>&1; then
+#               echo "✅ API documentation is accessible"
+#             else
+#               echo "⚠️  API documentation endpoint not responding (non-critical)"
+#             fi
+            
+#             echo "================================================"
+#             echo "🎉 All health checks passed!"
+#             echo "================================================"
+#             echo "📡 API is accessible at: http://${{ env.VM_HOST_PROD }}:8000"
+#             echo "📚 API Docs: http://${{ env.VM_HOST_PROD }}:8000/docs"
+#             echo "❤️  Health Check: http://${{ env.VM_HOST_PROD }}:8000/health"
+
+#       - name: Docker Status Report
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ env.VM_HOST_PROD }}
+#           username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+#           key: ${{ secrets.VM_SSH_KEY_PROD }}
+#           port: ${{ secrets.VM_SSH_PORT || 22 }}
+#           script: |
+#             cd ${{ env.VM_APP_DIR }}
+            
+#             echo "================================================"
+#             echo "🐳 FINAL DOCKER STATUS REPORT"
+#             echo "================================================"
+            
+#             echo ""
+#             echo "📊 Running Containers:"
+#             sudo docker ps --filter name=fastapibackend --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}"
+            
+#             echo ""
+#             echo "📦 Deployed Image Info:"
+#             sudo docker images ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }} --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedSince}}"
+            
+#             echo ""
+#             echo "💾 Disk Usage by Docker:"
+#             sudo docker system df
+            
+#             echo ""
+#             echo "================================================"
+
+#       - name: Deployment Summary
+#         if: success()
+#         run: |
+#           echo "## 🚀 FastAPI Deployment Successful" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "**Target VM:** ${{ env.VM_HOST_PROD }}" >> $GITHUB_STEP_SUMMARY
+#           echo "**Docker Image:** ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest" >> $GITHUB_STEP_SUMMARY
+#           echo "**Registry:** AWS ECR (${{ env.ECR_REGISTRY }})" >> $GITHUB_STEP_SUMMARY
+#           echo "**Python Version:** ${{ env.PYTHON_VERSION }}" >> $GITHUB_STEP_SUMMARY
+#           echo "**Deployed at:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "### 🌐 Access Your Application:" >> $GITHUB_STEP_SUMMARY
+#           echo "- **API Endpoint:** http://${{ env.VM_HOST_PROD }}:8000" >> $GITHUB_STEP_SUMMARY
+#           echo "- **API Documentation:** http://${{ env.VM_HOST_PROD }}:8000/docs" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Health Check:** http://${{ env.VM_HOST_PROD }}:8000/health" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "### 🐳 Docker Information:" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Image:** \`${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:latest\`" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Registry:** AWS ECR" >> $GITHUB_STEP_SUMMARY
+#           echo "- **Container Status:** Check deployment logs above for detailed status" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "### 📦 Deployed Services:" >> $GITHUB_STEP_SUMMARY
+#           echo "- Lead Management API" >> $GITHUB_STEP_SUMMARY
+#           echo "- Email Marketing Service" >> $GITHUB_STEP_SUMMARY
+#           echo "- Newsletter Tracking" >> $GITHUB_STEP_SUMMARY
+          
+#       - name: Send failure notification
+#         if: failure()
+#         run: |
+#           echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "**VM:** ${{ env.VM_HOST_PROD }}" >> $GITHUB_STEP_SUMMARY
+#           echo "**Time:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "### 🔍 Troubleshooting:" >> $GITHUB_STEP_SUMMARY
+#           echo "1. SSH into VM: \`ssh -i securekey.pem ubuntu@${{ env.VM_HOST_PROD }}\`" >> $GITHUB_STEP_SUMMARY
+#           echo "2. Check logs: \`cd ${{ env.VM_APP_DIR }} && docker-compose logs\`" >> $GITHUB_STEP_SUMMARY
+#           echo "3. Check container status: \`docker ps -a\`" >> $GITHUB_STEP_SUMMARY
+
+#   rollback:
+#     name: Rollback Instructions
+#     runs-on: ubuntu-latest
+#     needs: deploy
+#     if: failure()
+    
+#     steps:
+#       - name: Set lowercase repository owner
+#         id: repo
+#         run: echo "owner_lowercase=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_OUTPUT
+
+#       - name: Provide Rollback Instructions
+#         run: |
+#           echo "## 🔄 Rollback Instructions" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "If you need to rollback to a previous version, SSH into your VM and run:" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo '```bash' >> $GITHUB_STEP_SUMMARY
+#           echo "# SSH into VM" >> $GITHUB_STEP_SUMMARY
+#           echo "ssh -i securekey.pem ubuntu@${{ env.VM_HOST_PROD }}" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "# Navigate to app directory" >> $GITHUB_STEP_SUMMARY
+#           echo "cd ${{ env.VM_APP_DIR }}" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "# Stop current containers" >> $GITHUB_STEP_SUMMARY
+#           echo "docker-compose down" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "# Log in to ECR first" >> $GITHUB_STEP_SUMMARY
+#           echo "aws ecr get-login-password --region ${{ env.AWS_REGION }} | sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "# Pull a specific previous version (replace with actual tag)" >> $GITHUB_STEP_SUMMARY
+#           echo "docker pull ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:<previous-tag>" >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "# Update docker-compose.yml/.env to use the previous tag" >> $GITHUB_STEP_SUMMARY
+#           echo "# Then start the containers" >> $GITHUB_STEP_SUMMARY
+#           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
+#           echo '```' >> $GITHUB_STEP_SUMMARY
+#           echo "" >> $GITHUB_STEP_SUMMARY
+#           echo "### 📋 Available Tags:" >> $GITHUB_STEP_SUMMARY
+#           echo "Check AWS ECR console for ${{ env.ECR_REPOSITORY }}" >> $GITHUB_STEP_SUMMARY
+

@@ -1,0 +1,136 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+.gitlab-ci.yml
+.github/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+virtualenv/
+
+# Environment files (will be provided via docker-compose or secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Data files (mounted as volumes, not needed in image)
+app/data/
+*.csv
+*.pdf
+*.pkl
+*.bin
+*.index
+*.pkl.gz
+*.pkl.bz2
+*.pkl.zip
+*.pkl.tar
+*.pkl.tar.gz
+
+# CI/CD files
+azure-pipelines.yml
+.gitlab/
+.circleci/
+.travis.yml
+Jenkinsfile
+
+# Documentation
+README.md
+README*.md
+CHANGELOG.md
+LICENSE
+*.md
+!requirements.txt
+
+# Test files
+tests/
+test/
+*_test.py
+test_*.py
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Monitoring and deployment configs (not needed in image)
+monitoring/
+deployment/
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+
+# Scripts (development only)
+scripts/
+*.sh
+*.bat
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Claude AI files
+.claude/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Model files (if large, mount as volume instead)
+# Uncomment if models are too large for image
+# app/data/model/
+# *.pt
+# *.pth
+# *.safetensors
+
+# Cache directories
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Backup files
+backups/
+*.backup
+*.old
