@@ -1,0 +1,228 @@
+name: VaLLM CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deployment target'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - vm
+          - kubernetes
+
+env:
+  DOCKER_IMAGE_NAME: va-llm-v1
+  DOCKER_REGISTRY: docker.io
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run linting
+        run: |
+          pip install flake8 black
+          flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
+          black --check app/ || true
+
+      - name: Check Dockerfile
+        run: |
+          docker build -t va-llm-v1:test -f Dockerfile . || exit 1
+
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            PYTHON_VERSION=${{ env.PYTHON_VERSION }}
+
+      - name: Build Summary
+        run: |
+          echo "## 🐳 Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** Docker Hub (${{ env.DOCKER_REGISTRY }})" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+
+  deploy-vm:
+    name: Deploy to Virtual Machine
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'vm')
+    environment:
+      name: VM-Production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment package
+        run: |
+          mkdir -p deploy
+          cp docker-compose.yml deploy/
+          
+          # Create .env file for production
+          cat > deploy/.env << EOF
+          ENVIRONMENT=production
+          PORT=8000
+          HOST=0.0.0.0
+          DOCKER_IMAGE=${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          DATABASE_HOST=${{ secrets.DATABASE_HOST || 'db.example.com' }}
+          DATABASE_PORT=${{ secrets.DATABASE_PORT || '5432' }}
+          DATABASE_NAME=${{ secrets.DATABASE_NAME || 'recruitment' }}
+          DATABASE_USER=${{ secrets.DATABASE_USER || 'postgres' }}
+          DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
+          GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY || '' }}
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY || '' }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY || '' }}
+          APOLLO_API_KEY=${{ secrets.APOLLO_API_KEY || '' }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY || '' }}
+          AWS_REGION=${{ secrets.AWS_REGION || 'us-east-1' }}
+          S3_BUCKET=${{ secrets.S3_BUCKET || '' }}
+          EOF
+
+      - name: Copy files to VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_SSH_PORT || 22 }}
+          source: "deploy/*"
+          target: "/home/${{ secrets.VM_USERNAME || 'ubuntu' }}/va-llm-v1"
+          strip_components: 1
+          overwrite: true
+
+      - name: Deploy on VM via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USERNAME || 'ubuntu' }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_SSH_PORT || 22 }}
+          script: |
+            cd /home/${{ secrets.VM_USERNAME || 'ubuntu' }}/va-llm-v1
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login ${{ env.DOCKER_REGISTRY }} -u ${{ env.DOCKER_USERNAME }} --password-stdin
+            docker pull ${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            docker-compose down --remove-orphans || true
+            docker-compose up -d --force-recreate
+            sleep 15
+            curl -f http://localhost:8000/health || exit 1
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes (AKS)
+    runs-on: ubuntu-latest
+    needs: build
+    if: |
+      (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/production')) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'kubernetes')
+    environment:
+      name: AKS-Production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+
+      - name: Create namespace
+        run: |
+          kubectl create namespace va-llm-v1 --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create secret for Docker registry
+        run: |
+          kubectl create secret docker-registry docker-registry-secret \
+            --docker-server=${{ env.DOCKER_REGISTRY }} \
+            --docker-username=${{ env.DOCKER_USERNAME }} \
+            --docker-password=${{ secrets.DOCKER_PASSWORD }} \
+            --namespace=va-llm-v1 \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/ -n va-llm-v1
+          kubectl rollout status deployment/va-llm-v1 -n va-llm-v1 --timeout=5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get deployments,services,pods -n va-llm-v1
+          kubectl get service va-llm-v1-service -n va-llm-v1 -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || echo "LoadBalancer IP pending"

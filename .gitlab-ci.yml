@@ -1,0 +1,5 @@
+stages:
+  - docker
+
+include:
+  - local: '.gitlab/ci/docker-build-push.yml'
