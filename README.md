@@ -1,153 +1,445 @@
-# VaLLM: Sovereign AI for Cloud Operations
+# VaLLM Specialist Model — Multi-Industry AI Engine
 
-> **Mission**: A private, production-grade AI reasoning engine that understands *your* specific cloud infrastructure. Unlike generic LLMs, VaLLM is grounded in your actual production data (logs, resources, configurations) and provides DevOps intelligence without data leaving your network.
+> **Build domain-specific AI models for any industry.** One codebase, five industries (and counting). Fine-tune, embed, and serve models tailored to healthcare, finance, cloud, automation, or customer service — just pick your industry and go.
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688.svg)](https://fastapi.tiangolo.com)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ---
 
 ## Table of Contents
 
+- [Overview](#overview)
+- [Supported Industries](#supported-industries)
 - [Architecture](#architecture)
-- [Features](#features)
 - [Quick Start](#quick-start)
-- [Deployment](#deployment)
-- [API Reference](#api-reference)
+- [Step-by-Step Guide](#step-by-step-guide)
+  - [Step 1: Environment Setup](#step-1-environment-setup)
+  - [Step 2: Choose Your Industry](#step-2-choose-your-industry)
+  - [Step 3: Prepare Datasets](#step-3-prepare-datasets)
+  - [Step 4: Precompute Embeddings](#step-4-precompute-embeddings)
+  - [Step 5: Train the Model](#step-5-train-the-model)
+  - [Step 6: Serve the API](#step-6-serve-the-api)
+  - [Step 7: Query Your Model](#step-7-query-your-model)
 - [Configuration](#configuration)
-- [Monitoring](#monitoring)
 - [Project Structure](#project-structure)
-- [Data Management](#data-management)
-- [Troubleshooting](#troubleshooting)
+- [Dataset Reference](#dataset-reference)
+- [API Reference](#api-reference)
+- [Deployment](#deployment)
+- [Monitoring](#monitoring)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+
+---
+
+## Overview
+
+VaLLM Specialist Model is a **multi-industry AI engine** that lets you build domain-specific AI models from a single codebase. Instead of hardcoding for one domain, you configure an industry — and the entire pipeline (datasets, prompts, training, embeddings, API) adapts automatically.
+
+**How it works:**
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────┐
+│  Select      │────▶│  Prepare     │────▶│  Train /    │────▶│  Serve   │
+│  Industry    │     │  Datasets    │     │  Embed      │     │  API     │
+└─────────────┘     └──────────────┘     └─────────────┘     └──────────┘
+   config.py          prepare_data       train.py /            FastAPI
+   .env               industry-aware     precompute.py         routes.py
+```
+
+---
+
+## Supported Industries
+
+| Industry | Use Cases | Starter Datasets |
+|----------|-----------|-----------------|
+| 🏥 **Healthcare** | Medical Q&A, clinical notes, diagnosis assistance, ICD coding | `medical_qa.csv`, `clinical_notes.csv`, `icd_codes.csv` |
+| 💰 **Finance** | Financial analysis, transaction monitoring, compliance, accounting Q&A | `financial_qa.csv`, `transactions.csv`, `financial_terms.csv` |
+| ☁️ **Cloud** | Cloud provisioning, DevOps automation, infrastructure Q&A | `cloud_deployments.csv`, `devops_qa.csv` |
+| ⚙️ **Automation** | Workflow design, process optimization, RPA, CI/CD | `automation_workflows.csv`, `process_optimization.csv` |
+| 🎧 **Customer Service** | Ticket resolution, FAQ bots, escalation routing | `support_tickets.csv`, `faq.csv`, `escalation_rules.csv` |
 
 ---
 
 ## Architecture
 
-VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reasoning** architecture.
-
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    User / Application                        │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP Request
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FastAPI Gateway (app.py)                        │
-│  ├─ Rate Limiting        ├─ Metrics Collection              │
-│  ├─ Request Logging      └─ Circuit Breaker                 │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-         ┌───────────────┼───────────────┐
-         ▼               ▼               ▼
-    ┌─────────┐    ┌──────────┐    ┌──────────┐
-    │ /search │    │ /api/v1  │    │ /api/v2  │
-    └────┬────┘    └────┬─────┘    └────┬─────┘
-         │              │               │
-         ▼              ▼               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    VectorStore (FAISS)                       │
-│  ├─ Embedding Model: all-MiniLM-L6-v2 (384-dim)             │
-│  ├─ L1 Cache: Embeddings (TTL 1h)                           │
-│  └─ L2 Cache: Search Results (TTL 30m)                      │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              ReasoningEngine (reasoning.py)                  │
-│  Search → Analyze → Synthesize → Decide                      │
-└─────────────────────────────────────────────────────────────┘
+va_llm_specialist_model/
+│
+├── app/
+│   ├── core/
+│   │   ├── settings.py          # Global config + industry selection
+│   │   ├── industry.py          # Industry registry (prompts, datasets, eval tasks)
+│   │   ├── model_loader.py      # Model loading utilities
+│   │   └── db.py                # Database configuration
+│   │
+│   ├── services/ai/ml/
+│   │   ├── train.py             # Fine-tuning (industry-aware)
+│   │   ├── precompute.py        # Embedding generation (industry-aware)
+│   │   ├── embeddings.py        # VectorStore + FAISS search
+│   │   ├── routes.py            # API endpoints (v1/v2/v3)
+│   │   └── reasoning.py         # LLM reasoning engine
+│   │
+│   └── data/
+│       ├── datasets/
+│       │   ├── healthcare/      # Healthcare CSVs, JSONs, TXTs
+│       │   ├── finance/         # Finance datasets
+│       │   ├── cloud/           # Cloud/DevOps datasets
+│       │   ├── automation/      # Automation datasets
+│       │   └── customer_service/# Customer service datasets
+│       ├── models/              # Trained model weights (per industry)
+│       └── vectorstore/         # FAISS indexes (per industry)
+│
+├── deployment/                  # Kubernetes, Prometheus configs
+├── scripts/                     # Data fetchers (S3, Azure, URL)
+├── docker-compose.yml
+├── Dockerfile
+└── requirements.txt
 ```
-
-### Core Components
-
-| Component | Description |
-|-----------|-------------|
-| **VectorStore** | FAISS-based semantic search with sentence-transformers embeddings |
-| **ReasoningEngine** | Multi-step chain-of-thought reasoning for cloud operations |
-| **Cache** | Multi-level TTL caching (embeddings L1, search results L2) |
-| **Metrics** | Prometheus metrics for observability |
-| **Health** | Kubernetes-compatible readiness/liveness probes |
-
----
-
-## Features
-
-- **Semantic Search**: Query infrastructure knowledge using natural language
-- **Chain-of-Thought Reasoning**: Multi-step analysis with confidence scoring
-- **Multi-Cloud Support**: AWS, Azure, GCP, and Kubernetes intelligence
-- **100% Offline**: No external API calls required - full data sovereignty
-- **Production Ready**: Rate limiting, circuit breaker, structured logging
-- **Observable**: Prometheus metrics, Grafana dashboards, health probes
-- **Scalable**: Docker Compose, Kubernetes (AKS), horizontal scaling
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.11+
-- Docker and Docker Compose (recommended)
-- 4GB+ RAM
-
-### Option 1: Docker Compose (Recommended)
-
 ```bash
-# Clone and navigate to project
-cd va_llm_v1
+# Clone
+git clone https://github.com/valtunox/va_llm_specialist_model.git
+cd va_llm_specialist_model
 
-# Start full stack (API + Redis + Prometheus + Grafana)
-docker-compose up -d
+# Install
+pip install -r requirements.txt
 
-# Check status
-docker-compose ps
+# Set industry (default: cloud)
+export ACTIVE_INDUSTRY=healthcare
+
+# Run the full pipeline
+python app/services/ai/ml/precompute.py --industry healthcare
+python app/services/ai/ml/train.py --industry healthcare --num-train-epochs 1
+
+# Start the API
+python -m app.app
 ```
 
-Services will be available at:
-- **API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3000
+---
 
-### Option 2: Local Development
+## Step-by-Step Guide
+
+### Step 1: Environment Setup
+
+**Prerequisites:**
+- Python 3.10+
+- CUDA GPU (recommended) or CPU
+- 8GB+ RAM (16GB+ for larger models)
 
 ```bash
+# Clone the repository
+git clone https://github.com/valtunox/va_llm_specialist_model.git
+cd va_llm_specialist_model
+
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the service
-python -m app.app
+# Copy environment template
+cp .env.example .env  # Edit with your API keys
 ```
 
-The service will:
-1. Download embedding model (first run only, ~80MB)
-2. Auto-build FAISS index if not present (when `VALLM_AUTO_PRECOMPUTE=true`)
-3. Start API server on http://localhost:8000
+**Key environment variables:**
 
-### Test the API
+```env
+# Industry Selection
+ACTIVE_INDUSTRY=healthcare          # healthcare | finance | cloud | automation | customer_service
+
+# LLM Provider (for reasoning API)
+MODEL_PROVIDER=gemini               # ollama | openai | gemini | anthropic | huggingface
+GOOGLE_API_KEY=your-key-here        # Or OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
+
+# Database (optional)
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vallm
+
+# Redis (optional, for caching)
+REDIS_URL=redis://localhost:6379/0
+```
+
+---
+
+### Step 2: Choose Your Industry
+
+Set your target industry in `.env` or via environment variable:
 
 ```bash
-# Health check
-curl http://localhost:8000/health
+# Option A: Environment variable
+export ACTIVE_INDUSTRY=finance
 
-# Query endpoint
-curl -X POST http://localhost:8000/api/model/v1/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "Why are IAM access keys not rotated in 90 days?",
-    "top_k": 5,
-    "include_reasoning": true
-  }'
+# Option B: CLI flag (overrides .env)
+python app/services/ai/ml/train.py --industry finance
 
-# Developer endpoint (Terraform generation)
-curl -X POST http://localhost:8000/api/model/v1/developer \
+# Option C: API query parameter (runtime switching)
+curl "http://localhost:8000/api/v1/query?industry=healthcare"
+```
+
+The industry selection controls:
+- **System prompts** — Industry-specific instruction prefixes
+- **Dataset paths** — `app/data/datasets/{industry}/`
+- **Model output** — `app/data/models/{industry}/`
+- **Vector index** — `app/data/vectorstore/{industry}/`
+- **Evaluation tasks** — Industry-appropriate benchmarks
+
+---
+
+### Step 3: Prepare Datasets
+
+Each industry has a dataset directory with starter CSVs included:
+
+```
+app/data/datasets/
+├── healthcare/
+│   ├── medical_qa.csv          # 80 medical Q&A pairs
+│   ├── clinical_notes.csv      # 60 clinical records
+│   └── icd_codes.csv           # 50 ICD-10 codes
+├── finance/
+│   ├── financial_qa.csv        # 80 finance Q&A pairs
+│   ├── transactions.csv        # 70 transaction records
+│   └── financial_terms.csv     # 60 financial terms
+├── cloud/
+│   ├── cloud_deployments.csv   # 80 deployment configs
+│   └── devops_qa.csv           # 70 DevOps Q&A pairs
+├── automation/
+│   ├── automation_workflows.csv # 60 workflow definitions
+│   └── process_optimization.csv # 50 optimization records
+└── customer_service/
+    ├── support_tickets.csv     # 80 support tickets
+    ├── faq.csv                 # 60 FAQ entries
+    └── escalation_rules.csv    # 40 escalation rules
+```
+
+**Add your own data:**
+
+Drop CSV, JSON, TXT, or PDF files into the appropriate industry folder. Supported formats:
+
+| Format | How It's Processed |
+|--------|-------------------|
+| **CSV** | Each row → training text (key-value pairs) |
+| **JSON** | Nested objects flattened, arrays iterated |
+| **TXT** | Chunked by paragraphs/sections |
+| **PDF** | Page-by-page text extraction |
+
+**Fetch from cloud storage:**
+
+```bash
+# From S3
+python scripts/database/s3_fetcher.py --bucket my-data --prefix healthcare/
+
+# From Azure Blob
+python scripts/database/azure_blob_fetcher.py --container datasets --prefix finance/
+
+# From URL
+python scripts/database/url_fetcher.py --url https://example.com/data.csv --output app/data/datasets/healthcare/
+```
+
+---
+
+### Step 4: Precompute Embeddings
+
+Build a FAISS vector index from your datasets for semantic search:
+
+```bash
+# Precompute for a specific industry
+python app/services/ai/ml/precompute.py --industry healthcare
+
+# With custom embedding model
+python app/services/ai/ml/precompute.py \
+  --industry finance \
+  --embedding-model sentence-transformers/all-MiniLM-L6-v2 \
+  --batch-size 128
+
+# Output:
+#   app/data/vectorstore/healthcare/faiss_index.bin
+#   app/data/vectorstore/healthcare/documents.pkl
+```
+
+**What happens:**
+1. Loads all CSVs/JSONs from `app/data/datasets/{industry}/`
+2. Converts rows to text using industry-specific templates
+3. Generates embeddings with sentence-transformers
+4. Builds FAISS IndexFlatIP (cosine similarity)
+5. Saves index + documents to `app/data/vectorstore/{industry}/`
+
+---
+
+### Step 5: Train the Model
+
+Fine-tune a causal language model on your industry data:
+
+```bash
+# Basic training (CPU-friendly, uses distilgpt2 by default)
+python app/services/ai/ml/train.py --industry healthcare --num-train-epochs 1
+
+# With a larger model (needs GPU)
+python app/services/ai/ml/train.py \
+  --industry finance \
+  --model-name-or-path microsoft/phi-2 \
+  --num-train-epochs 3 \
+  --per-device-train-batch-size 4
+
+# Train on specific file types only
+python app/services/ai/ml/train.py \
+  --industry cloud \
+  --file-types csv,json
+
+# Train on a single file
+python app/services/ai/ml/train.py \
+  --industry healthcare \
+  --dataset app/data/datasets/healthcare/medical_qa.csv
+```
+
+**Model options by hardware:**
+
+| Hardware | Model | VRAM | Notes |
+|----------|-------|------|-------|
+| CPU only | `sshleifer/tiny-gpt2` | — | ~2MB, instant, for testing |
+| CPU / Low RAM | `distilgpt2` | — | ~350MB, decent quality |
+| 8GB GPU | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` | ~3GB | Good starter |
+| 12GB GPU | `microsoft/phi-2` | ~6GB | Strong reasoning |
+| 16GB+ GPU | `mistralai/Mistral-7B-Instruct-v0.2` | ~14GB | Production quality |
+| 24GB+ GPU | `Qwen/Qwen2.5-Coder-7B-Instruct` | ~15GB | Best for code/cloud |
+
+**Output:**
+```
+app/data/models/{industry}/
+├── config.json
+├── tokenizer.json
+└── pytorch_model.bin
+```
+
+---
+
+### Step 6: Serve the API
+
+```bash
+# Start the FastAPI server
+python -m app.app
+
+# Or with uvicorn directly
+uvicorn app.app:app --host 0.0.0.0 --port 8000 --reload
+
+# Or with Docker
+docker-compose up -d
+```
+
+The server auto-loads:
+- Trained model from `app/data/models/{active_industry}/`
+- FAISS index from `app/data/vectorstore/{active_industry}/`
+- Industry-specific prompts and routing
+
+---
+
+### Step 7: Query Your Model
+
+**V1 — Simple query:**
+```bash
+curl -X POST http://localhost:8000/api/v1/query \
   -H "Content-Type: application/json" \
-  -d '{
-    "query": "Create Terraform config for EKS cluster",
-    "include_code": true
-  }'
+  -d '{"query": "What are the symptoms of Type 2 diabetes?"}'
+```
+
+**V2 — With entity extraction:**
+```bash
+curl -X POST http://localhost:8000/api/v2/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Analyze this transaction for fraud risk", "industry": "finance"}'
+```
+
+**V3 — Advanced reasoning:**
+```bash
+curl -X POST http://localhost:8000/api/v3/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Design a CI/CD pipeline for a microservices architecture", "industry": "cloud"}'
+```
+
+**Runtime industry switching:**
+```bash
+# Override industry per request
+curl "http://localhost:8000/api/v1/query?industry=customer_service" \
+  -d '{"query": "How do I handle an angry customer about a billing issue?"}'
+```
+
+---
+
+## Configuration
+
+### Industry Registry (`app/core/industry.py`)
+
+Each industry is defined in `INDUSTRY_REGISTRY` with:
+
+```python
+INDUSTRY_REGISTRY = {
+    Industry.HEALTHCARE: {
+        "system_prompt": "You are an AI assistant for healthcare...",
+        "dataset_sources": ["medmcqa", "pubmedqa", "medical_meadow"],
+        "eval_tasks": ["medqa", "pubmedqa"],
+        "domain_keywords": ["patient", "diagnosis", "treatment", ...],
+        "embedding_text_template": "Medical context: {content}",
+        ...
+    },
+    # ... finance, cloud, automation, customer_service
+}
+```
+
+### Settings (`app/core/settings.py`)
+
+Key settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ACTIVE_INDUSTRY` | `cloud` | Target industry |
+| `MODEL_PROVIDER` | `gemini` | LLM provider for reasoning |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model |
+| `VECTOR_DB_TYPE` | `faiss` | Vector database backend |
+| `ENABLE_TRAINING` | `true` | Enable training endpoints |
+| `ENABLE_EMBEDDINGS` | `true` | Enable embedding generation |
+
+---
+
+## API Reference
+
+### V1 Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/query` | Industry-aware semantic query |
+| POST | `/api/v1/developer` | Developer-focused analysis |
+| POST | `/api/v1/terminal` | Terminal command generation |
+
+### V2 Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v2/query` | Query with entity extraction |
+| POST | `/api/v2/extract` | Named entity extraction |
+| POST | `/api/v2/upload` | Upload and process documents |
+| GET | `/api/v2/status` | System status and health |
+
+### V3 Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v3/query` | Advanced multi-step reasoning |
+
+### Common Parameters
+
+```json
+{
+  "query": "Your question here",
+  "industry": "healthcare",       // Optional: override active industry
+  "top_k": 5,                     // Number of similar documents to retrieve
+  "include_sources": true          // Include source documents in response
+}
 ```
 
 ---
@@ -157,392 +449,106 @@ curl -X POST http://localhost:8000/api/model/v1/developer \
 ### Docker
 
 ```bash
-# Build image
-docker build -t vallm:latest .
-
-# Run container
-docker run -p 8000:8000 -v $(pwd)/app/data:/app/data vallm:latest
-```
-
-### Docker Compose (Full Stack)
-
-```bash
-# Start all services
+# Build and run
 docker-compose up -d
 
-# View logs
-docker-compose logs -f vallm
-
-# Stop all services
-docker-compose down
+# With specific industry
+ACTIVE_INDUSTRY=finance docker-compose up -d
 ```
 
-**Included Services**:
-- `vallm`: FastAPI application (port 8000)
-- `redis`: Caching layer (port 6379)
-- `prometheus`: Metrics collection (port 9090)
-- `grafana`: Metrics visualization (port 3000)
-
-### Kubernetes (AKS)
-
-Manifests are in `deployment/kubernetes/`:
+### Kubernetes
 
 ```bash
-# Apply manifests
-kubectl apply -f deployment/kubernetes/
+# AWS EKS
+kubectl apply -f deployment/kubernetes/eks/deploy_kubernetes_eks.yml
 
-# Check deployment
-kubectl get pods -l app=vallm
+# Azure AKS
+kubectl apply -f deployment/kubernetes/aks/deploy_kubernetes_aks.yml
+
+# Generic
+kubectl apply -f deployment/kubernetes/deployment.yaml
+kubectl apply -f deployment/kubernetes/service.yaml
 ```
-
-See `deployment.md` for detailed instructions.
 
 ### CI/CD
 
-**GitHub Actions** (`.github/workflows/data-pipeline.yml`):
-- Linting and testing
-- Docker build and push
-- Deploy to VM or Kubernetes
-
-**Azure Pipelines** (`azure-pipelines.yml`):
-- Build and push to Azure Container Registry
-- Deploy to VM via SSH
-- Deploy to AKS
-
----
-
-## API Reference
-
-### Core Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | HTML status page |
-| GET | `/health` | Basic health check |
-| GET | `/health/ready` | Readiness probe (K8s) |
-| GET | `/health/live` | Liveness probe (K8s) |
-| GET | `/metrics` | Prometheus metrics |
-| GET | `/docs` | OpenAPI documentation |
-| POST | `/search` | Vector similarity search |
-| POST | `/generate` | Text generation (if model loaded) |
-
-### V1 Endpoints - RAG + Reasoning
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/model/v1/query` | Main RAG query with reasoning |
-| POST | `/api/model/v1/developer` | Developer/Terraform assistance |
-| POST | `/api/model/v1/terminal` | CLI command assistance |
-
-**Example Request**:
-```json
-{
-  "query": "How do I provision an EC2 instance?",
-  "top_k": 5,
-  "include_reasoning": true,
-  "filter_type": "resource"
-}
-```
-
-### V2 Endpoints - NLP + Documents
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/model/v2/query` | NLP-enhanced query with entity extraction |
-| POST | `/api/model/v2/upload` | Document/image upload for analysis |
-| POST | `/api/model/v2/extract` | Entity extraction from text |
-| GET | `/api/model/v2/status` | NLP capability status |
-
-### V3 Endpoints - Incident Analysis
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/model/v3/query` | Incident pattern detection |
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `VALLM_AUTO_PRECOMPUTE` | `true` | Auto-build FAISS index if missing |
-| `VALLM_AUTO_TRAIN` | `false` | Auto-train LLM model if missing |
-| `USE_CUDA` | `false` | Enable GPU acceleration |
-| `VALLM_JSON_LOGGING` | `false` | Enable structured JSON logging |
-| `VALLM_RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
-| `VALLM_RATE_LIMIT_PER_MINUTE` | `60` | Max requests per minute per client |
-| `VALLM_CACHE_EMBEDDINGS` | `true` | Enable embedding cache (L1) |
-| `VALLM_CACHE_SEARCH` | `true` | Enable search result cache (L2) |
-| `ENVIRONMENT` | `production` | Deployment environment |
-| `PORT` | `8000` | API server port |
-| `REDIS_HOST` | `redis` | Redis hostname |
-| `REDIS_PORT` | `6379` | Redis port |
-
-### GPU Support
-
-```bash
-# Enable CUDA
-export USE_CUDA=true
-
-# Install GPU-enabled FAISS
-pip uninstall faiss-cpu
-pip install faiss-gpu
-```
-
-### Changing the Embedding Model
-
-Edit `app/embeddings.py`:
-```python
-vector_store = VectorStore(
-    data_dir=data_dir,
-    model_name="all-mpnet-base-v2"  # Higher quality, larger model
-)
-```
+- **GitHub Actions**: `.github/workflows/LLM_PROD_VM_CICD.yml`
+- **GitLab CI**: `.gitlab-ci.yml`
+- **Azure Pipelines**: `azure-pipelines.yml`
 
 ---
 
 ## Monitoring
 
-### Prometheus Metrics
-
-Available at `/metrics`:
-
-- `http_requests_total` - Request count by method/endpoint/status
-- `http_request_duration_seconds` - Request latency histogram
-- `vector_search_requests_total` - Vector search operations
-- `vector_search_duration_seconds` - Search latency
-- `cache_hits_total` / `cache_misses_total` - Cache effectiveness
-- `llm_generation_requests_total` - LLM generation operations
-
-### Grafana Dashboards
-
-Pre-configured dashboards in `monitoring/grafana/dashboards/`:
-- VaLLM Overview
-- API Performance
-- Cache Metrics
-- System Health
-
-Access Grafana at http://localhost:3000 (default: admin/admin)
-
-### Health Checks
+Prometheus + Grafana stack included:
 
 ```bash
-# Basic health
+# Prometheus config
+deployment/monitoring/prometheus.yml
+
+# Metrics endpoint
+curl http://localhost:8000/metrics
+
+# Health check
 curl http://localhost:8000/health
-
-# Readiness (checks vector store, FAISS, memory)
-curl http://localhost:8000/health/ready
-
-# Liveness
-curl http://localhost:8000/health/live
-```
-
-### Logs
-
-```bash
-# View recent logs via API
-curl http://localhost:8000/logs
-
-# Log statistics
-curl http://localhost:8000/logs/stats
-
-# Docker logs
-docker-compose logs -f vallm
 ```
 
 ---
 
-## Project Structure
+## Roadmap
 
-```
-va_llm_v1/
-├── app/                          # Main application
-│   ├── app.py                    # FastAPI application
-│   ├── embeddings.py             # VectorStore (FAISS)
-│   ├── reasoning.py              # ReasoningEngine
-│   ├── routes.py                 # All API endpoints (v1, v2, v3)
-│   ├── precompute.py             # Build FAISS index
-│   ├── train.py                  # LLM fine-tuning
-│   ├── cache.py                  # Multi-level caching
-│   ├── circuit_breaker.py        # Resilience pattern
-│   ├── exceptions.py             # Custom exceptions
-│   ├── health.py                 # Health check endpoints
-│   ├── logging_config.py         # Structured logging
-│   ├── metrics.py                # Prometheus metrics
-│   ├── rate_limit.py             # Rate limiting
-│   ├── data/                     # Data directory
-│   │   ├── *.csv                 # Knowledge base files
-│   │   ├── *.pdf                 # PDF documents
-│   │   ├── vectorstore/          # FAISS index artifacts
-│   │   └── model/                # Trained model artifacts
-│   └── tests/                    # Test files
-├── deployment/                   # Deployment configs
-│   ├── kubernetes/               # K8s manifests
-│   └── vm/                       # VM deployment
-├── monitoring/                   # Monitoring stack
-│   ├── prometheus.yml            # Prometheus config
-│   └── grafana/                  # Grafana dashboards
-├── scripts/                      # Utility scripts
-├── Dockerfile                    # Container image
-├── docker-compose.yml            # Full stack setup
-├── requirements.txt              # Python dependencies
-├── azure-pipelines.yml           # Azure DevOps CI/CD
-└── .github/workflows/            # GitHub Actions CI/CD
-```
+### Phase 1 ✅ — Foundation
+- [x] Multi-industry engine architecture
+- [x] Industry registry with 5 industries
+- [x] Industry-aware training pipeline
+- [x] Industry-aware embedding pipeline
+- [x] Starter datasets for all industries
+- [x] Runtime industry switching via API
 
----
+### Phase 2 🔄 — Scale
+- [ ] Add more industries (legal, education, real estate, manufacturing)
+- [ ] HuggingFace dataset auto-download per industry
+- [ ] QLoRA / LoRA fine-tuning for large models (70B+)
+- [ ] Multi-industry model (single model, multiple domains)
+- [ ] Automated evaluation benchmarks per industry
 
-## Data Management
+### Phase 3 🔮 — Production
+- [ ] Model versioning and A/B testing
+- [ ] Auto-scaling inference (vLLM / TGI)
+- [ ] RAG pipeline with industry-specific chunking
+- [ ] Feedback loop (user corrections → retraining)
+- [ ] Enterprise SSO + RBAC per industry
 
-### Knowledge Base Location
-
-All data is in `app/data/`:
-- `*.csv` - Structured knowledge (resources, incidents, recommendations)
-- `*.pdf` - DevOps documentation
-- `*.json` - Configuration data
-- `vectorstore/` - FAISS index and document metadata
-
-### Building the Index
-
-```bash
-# Standard precompute
-python -m app.precompute
-
-# Check index status
-python -m app.precompute --action check
-```
-
-### Expanding the Dataset
-
-```bash
-# Generate synthetic data
-python scripts/massive_data_expansion.py
-
-# Rebuild index after adding data
-python -m app.precompute
-```
-
-### LLM Fine-Tuning (Optional)
-
-```bash
-# Train on CSV data
-python -m app.train --num-train-epochs 1
-
-# Model saved to app/data/model/
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-**FAISS index not found**
-```bash
-# Rebuild the index
-python -m app.precompute
-```
-
-**Index has 0 vectors / generic responses**
-- Ensure CSV files exist in `app/data/`
-- Run `python -m app.precompute` to populate the index
-
-**Model download failed**
-- Check internet connection (first run only)
-- Model is cached after first download (~80MB)
-
-**Out of memory**
-- Use smaller model: `all-MiniLM-L6-v2` (default, 80MB)
-- Reduce batch size in `embeddings.py`
-- Increase container memory limits
-
-**Connection refused on health check**
-- Wait for startup to complete
-- Check logs: `docker-compose logs vallm`
-
-### Debug Mode
-
-```bash
-# Enable verbose logging
-export VALLM_JSON_LOGGING=true
-python -m app.app
-```
-
----
-
-## Technology Stack
-
-| Category | Technologies |
-|----------|-------------|
-| **Framework** | FastAPI, Uvicorn |
-| **AI/ML** | sentence-transformers, FAISS, PyTorch, spaCy |
-| **Data** | Pandas, NumPy, PyPDF2 |
-| **Caching** | Redis, in-memory TTL cache |
-| **Monitoring** | Prometheus, Grafana |
-| **Container** | Docker, Docker Compose |
-| **Orchestration** | Kubernetes (AKS) |
-| **CI/CD** | GitHub Actions, Azure Pipelines |
-
----
-
-## License
-
-Private - Internal use only.
+### Phase 4 🚀 — Platform
+- [ ] Web UI for dataset management
+- [ ] One-click industry deployment
+- [ ] Marketplace for pre-trained industry models
+- [ ] Multi-tenant SaaS mode
+- [ ] Custom industry creation wizard
 
 ---
 
 ## Contributing
 
-1. Create a feature branch
-2. Make changes and add tests
-3. Run linting: `flake8 app/`
-4. Submit pull request
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Add datasets to the appropriate `app/data/datasets/{industry}/` folder
+4. Run training + precompute to verify
+5. Submit a PR
 
-For detailed deployment instructions, see `deployment.md`.
+**Adding a new industry:**
 
-Summary of what’s in place:
-1. va_llm_v1 – Provision intent API
-New: va_llm_v1/app/services/ai/ml/cloud_routes.py
-POST /api/cloud/provision-intent
-Body: {"query": "user message"}.
-Response:
-Provisioning: query_type: "provisioning", intent (e.g. provision_vm, provision_docker, provision_database, …), payload (Golang-ready dict built from cloud_deployments.csv), confidence, match_prompt.
-Non‑provisioning: query_type one of "incident", "cost", "billing", "security", "recommendation", "other"; intent and payload are null so the agent does not call Golang.
-Uses the existing vector store over cloud_deployments (and any other CSVs). Rows with an intent column are treated as deployment rows; best match is turned into intent + payload via _raw_to_golang_payload() for VM, Kubernetes, Docker, FastAPI, static website, and database.
-app.py
-Registers the cloud router and documents the new endpoint in the API docstring.
-So va_llm_v1 is the place that decides intent and how Golang wants the request; it returns that in the payload for the agent.
-2. Precompute – Tag deployment rows
-app/services/ai/ml/precompute.py
-For each row, if the CSV has an intent column and it’s set, metadata is set with "type": "deployment".
-Lets you later restrict search to deployment rows (e.g. with filter_type="deployment") if you want.
-Re-run precompute after pulling so the FAISS index includes this metadata (and cloud_deployments.csv):
-python -m app.services.ai.ml.precompute from the va_llm_v1 root (with --dataset-dir app/data if you use it).
-3. InfinityAI cloud agent – Call va_llm, validate, then Golang
-InfinityAI/app/services/ai/agents/cloud/agent.py
-fetch_provision_intent(query)
-Calls va_llm_v1 POST /api/cloud/provision-intent.
-URL: env VA_LLM_V1_URL or VALLM_URL (default http://localhost:8002).
-Confidence threshold: PROVISION_INTENT_CONFIDENCE_MIN (default 0.2).
-Flow in handle_deployment_operation:
-LLM (OpenAI/Claude/etc.) still runs first to produce the user-facing reply.
-Call va_llm_v1 provision-intent.
-If query_type == "provisioning" and intent is set and confidence >= PROVISION_INTENT_CONFIDENCE_MIN:
-Use that intent and payload; merge in user_id, workspace_id, session_id, details.
-Trigger Golang via execute_provisioning_service(intent, payload) (unchanged).
-If query_type != "provisioning" (incidents, cost, billing, security, recommendations):
-Do not set intent or call Golang; the LLM reply is the full answer (optionally formatted by the same or another LLM).
-If va_llm_v1 is down or returns no provisioning match:
-Fallback to the existing keyword-based intent + extractors and, when a provisioning intent is found, still call the Golang API.
-So the agent scores/double-checks by only accepting provisioning when va_llm returns query_type=provisioning with sufficient confidence; then it triggers the Golang provisioner. For non‑provisioning, it only uses the LLM to format the answer.
-Flow summary
-User: “Deploy a t2.micro EC2” or “What were last week’s incidents?” or “Any cost recommendations?”
-va_llm_v1 (provision-intent):
-For “Deploy…”: returns query_type: "provisioning", intent, Golang payload.
-For incidents/cost/recommendations: returns query_type: "incident" / "cost" / "recommendation" and no intent/payload.
-Agent:
-Provisioning → merge session/user/workspace into payload → call Golang → then LLM can format the provisioning result for the user.
-Non‑provisioning → no Golang; LLM (OpenAI/Claude/etc.) formats the answer from context (e.g. incidents, cost, security, recommendations).
-Ensure va_llm_v1 is running (e.g. port 8002) and VA_LLM_V1_URL points to it when running the InfinityAI agent. After changing precompute, re-run it and restart va_llm_v1 so the new index is loaded.
+1. Add enum value to `Industry` in `app/core/industry.py`
+2. Add entry to `INDUSTRY_REGISTRY` with prompts, datasets, eval tasks
+3. Create `app/data/datasets/{new_industry}/` with starter CSVs
+4. Test: `python app/services/ai/ml/precompute.py --industry new_industry`
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
+
+---
+
+**Built by [Valtunox](https://github.com/valtunox)** | Questions? Open an issue.
