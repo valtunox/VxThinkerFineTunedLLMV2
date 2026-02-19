@@ -60,6 +60,8 @@ import numpy as np
 import pandas as pd
 import torch
 
+from app.core.industry import Industry, get_industry_config
+
 try:
     import PyPDF2
     HAVE_PDF = True
@@ -116,13 +118,15 @@ class TrainConfig:
     warmup_ratio: float
     seed: int
     file_types: List[str]  # Supported: csv, json, txt, pdf
+    industry: Industry = Industry.CLOUD
 
 
-def row_to_text(row: Dict) -> str:
+def row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
     """Convert one CSV row into a single training text.
 
-    For deployment/provisioning JSON, a compact key/value representation works well.
+    Uses the industry registry to select the appropriate system prompt.
     """
+    cfg = get_industry_config(industry)
     parts: List[str] = []
     for k, v in row.items():
         if v is None:
@@ -132,13 +136,7 @@ def row_to_text(row: Dict) -> str:
             continue
         parts.append(f"{k}: {sv}")
 
-    # A simple instruction prefix encourages instruction-following behavior.
-    return (
-        "You are an AI assistant for cloud provisioning and deployment. "
-        "Analyze the following telemetry record and provide insights.\n\n"
-        + " | ".join(parts)
-        + "\n\nAnswer:"
-    )
+    return cfg["system_prompt"] + " | ".join(parts) + "\n\nAnswer:"
 
 
 def load_json_file(file_path: Path) -> List[Dict]:
@@ -254,28 +252,22 @@ def load_txt_file(file_path: Path, chunk_size: int = 1000) -> List[Dict]:
     return rows
 
 
-def json_row_to_text(row: Dict) -> str:
+def json_row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
     """Convert a JSON record into training text.
 
-    Handles OpenTelemetry-style data with special formatting.
+    Uses industry registry for category prompts and fallback prefix.
     """
+    cfg = get_industry_config(industry)
     category = row.pop('_category', None)
     source = row.pop('_source', None)
 
     parts: List[str] = []
 
-    # Add context prefix for provisioning/deployment
     if category:
-        category_prompts = {
-            'use_cases': "Provisioning use case. Deploy or create the following:",
-            'deployments': "Deployment configuration. Provision the following:",
-            'data': "Cloud provisioning data:",
-            'items': "Provisioning item:",
-            'records': "Deployment record:",
-        }
-        prefix = category_prompts.get(category, f"Cloud provisioning - {category}:")
+        category_prompts = cfg.get("json_category_prompts", {})
+        prefix = category_prompts.get(category, f"{industry.value} data - {category}:")
     else:
-        prefix = "You are an AI assistant for cloud provisioning and deployment. Use the following:"
+        prefix = cfg["system_prompt"].rstrip() + " Use the following:"
 
     for k, v in row.items():
         if v is None:
@@ -288,14 +280,16 @@ def json_row_to_text(row: Dict) -> str:
     return f"{prefix}\n\n" + " | ".join(parts) + "\n\nSummary:"
 
 
-def txt_row_to_text(row: Dict) -> str:
+def txt_row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
     """Convert a TXT chunk into training text."""
+    cfg = get_industry_config(industry)
     content = row.get('content', '')
     source = row.get('source', 'unknown')
+    ctx_label = cfg.get("txt_context_label", industry.value)
 
     return (
-        "You are an AI assistant for cloud operations and provisioning. "
-        f"Based on the following knowledge from {source}, provide expert guidance:\n\n"
+        cfg["system_prompt"].rstrip() + " "
+        f"Based on the following {ctx_label} knowledge from {source}, provide expert guidance:\n\n"
         f"{content}\n\n"
         "Summary and key insights:"
     )
@@ -310,11 +304,13 @@ class MultiFormatCausalLMDataset(Dataset):
         tokenizer,
         max_length: int,
         source_type: str = 'csv',  # 'csv', 'json', 'txt', 'pdf'
+        industry: Industry = Industry.CLOUD,
     ):
         self.df = df.reset_index(drop=True)
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.source_type = source_type
+        self.industry = industry
 
     def __len__(self) -> int:
         return len(self.df)
@@ -324,11 +320,11 @@ class MultiFormatCausalLMDataset(Dataset):
 
         # Choose text conversion based on source type
         if self.source_type == 'json':
-            text = json_row_to_text(row.copy())
+            text = json_row_to_text(row.copy(), industry=self.industry)
         elif self.source_type == 'txt':
-            text = txt_row_to_text(row)
+            text = txt_row_to_text(row, industry=self.industry)
         else:  # csv, pdf, or default
-            text = row_to_text(row)
+            text = row_to_text(row, industry=self.industry)
 
         # Tokenize a single training sample. We do NOT pad here; padding is handled
         # by the DataCollator dynamically per batch.
@@ -408,6 +404,7 @@ def train(cfg: TrainConfig) -> None:
     # Supported: CSV, JSON, TXT, PDF
     print("=" * 80)
     print("🚀 VaLLM Training")
+    print(f"🏭 Industry: {cfg.industry.value}")
     print(f"📁 Supported formats: {', '.join(cfg.file_types)}")
     print("=" * 80)
 
@@ -575,7 +572,7 @@ def train(cfg: TrainConfig) -> None:
         model.config.pad_token_id = tokenizer.eos_token_id
 
     # Wrap the CSV as a Dataset that yields tokenized examples.
-    dataset = CSVCausalLMDataset(df=df, tokenizer=tokenizer, max_length=cfg.text_max_length)
+    dataset = CSVCausalLMDataset(df=df, tokenizer=tokenizer, max_length=cfg.text_max_length, industry=cfg.industry)
 
     # Standard causal LM collator (creates `labels` from `input_ids` for next-token prediction).
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -728,6 +725,13 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--industry",
+        type=str,
+        default=None,
+        choices=[i.value for i in Industry],
+        help="Target industry (overrides ACTIVE_INDUSTRY env). Default: cloud",
+    )
 
     args = parser.parse_args()
 
@@ -738,12 +742,33 @@ def parse_args() -> TrainConfig:
     if invalid:
         parser.error(f"Invalid file types: {invalid}. Valid types: {valid_types}")
 
+    # Resolve industry
+    if args.industry:
+        industry = Industry(args.industry)
+    else:
+        try:
+            from app.core.settings import settings
+            industry = settings.active_industry
+        except Exception:
+            industry = Industry.CLOUD
+
+    # Default dataset-dir and output-dir to industry-specific paths when unchanged
+    dataset_dir_str = args.dataset_dir
+    output_dir_str = args.output_dir
+    default_dataset_dir = str(Path("app") / "data" / "datasets")
+    default_output_dir = str(Path("app") / "data" / "models")
+
+    if dataset_dir_str == default_dataset_dir:
+        dataset_dir_str = str(Path("app") / "data" / "datasets" / industry.value)
+    if output_dir_str == default_output_dir:
+        output_dir_str = str(Path("app") / "data" / "models" / industry.value)
+
     return TrainConfig(
         dataset_path=Path(args.dataset),
-        dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
+        dataset_dir=Path(dataset_dir_str) if dataset_dir_str else None,
         primary_csv=args.primary_csv,
         model_name_or_path=args.model_name_or_path,
-        output_dir=Path(args.output_dir),
+        output_dir=Path(output_dir_str),
         text_max_length=args.text_max_length,
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -753,6 +778,7 @@ def parse_args() -> TrainConfig:
         warmup_ratio=args.warmup_ratio,
         seed=args.seed,
         file_types=file_types,
+        industry=industry,
     )
 
 
