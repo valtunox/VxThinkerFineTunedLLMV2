@@ -37,6 +37,8 @@ import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
+from app.core.industry import Industry, get_industry_config
+
 # ============================================================================
 # EMBEDDING MODEL - Must match embeddings.py at runtime
 # Use a sentence-transformers model (e.g. all-MiniLM-L6-v2). Do NOT use
@@ -220,8 +222,33 @@ def main() -> None:
         help="Directory where faiss_index.bin and documents.pkl will be written",
     )
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument(
+        "--industry",
+        type=str,
+        default=None,
+        choices=[i.value for i in Industry],
+        help="Target industry (overrides ACTIVE_INDUSTRY env). Default: cloud",
+    )
 
     args = parser.parse_args()
+
+    # Resolve industry
+    if args.industry:
+        industry = Industry(args.industry)
+    else:
+        try:
+            from app.core.settings import settings as _settings
+            industry = _settings.active_industry
+        except Exception:
+            industry = Industry.CLOUD
+
+    # Default dirs to industry-specific paths when unchanged
+    default_dataset_dir = str(Path("app") / "data" / "datasets")
+    default_output_dir = str(Path("app") / "data" / "vectorstore")
+    if args.dataset_dir == default_dataset_dir:
+        args.dataset_dir = str(Path("app") / "data" / "datasets" / industry.value)
+    if args.output_dir == default_output_dir:
+        args.output_dir = str(Path("app") / "data" / "vectorstore" / industry.value)
 
     dataset_path = Path(args.dataset)
     dataset_dir = Path(args.dataset_dir) if args.dataset_dir else None
@@ -240,6 +267,7 @@ def main() -> None:
     # ==========================================================================
     print("\n" + "=" * 70)
     print("VaLLM PRECOMPUTE - Building FAISS Vector Index")
+    print(f"Industry: {industry.value}")
     print("=" * 70)
 
     # Collect (row_dict, source_path, is_json_use_case) for unified processing

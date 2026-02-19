@@ -52,20 +52,40 @@ EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIM = None  # Auto-detected at runtime from model (384 for all-MiniLM-L6-v2)
 # ============================================================================
 
+# Import Industry for industry-aware vectorstore paths
+try:
+    from app.core.industry import Industry
+except ImportError:
+    Industry = None  # type: ignore[misc,assignment]
+
+
 class VectorStore:
     """Manages embeddings, FAISS IndexFlatIP, and vector database persistence"""
 
-    def __init__(self, data_dir: str = None, model_name: str = EMBEDDING_MODEL_NAME):
+    def __init__(self, data_dir: str = None, model_name: str = EMBEDDING_MODEL_NAME, industry: str = None):
+        """
+        Args:
+            data_dir: Root data directory. Vectorstore is at ``data_dir/vectorstore/`` or
+                      ``data_dir/vectorstore/{industry}/`` when *industry* is set.
+            model_name: SentenceTransformer model identifier.
+            industry: Optional industry slug (e.g. ``"cloud"``). When provided the
+                      vectorstore index is stored in an industry-specific subdirectory.
+        """
         self.data_dir = Path(data_dir) if data_dir else Path(__file__).parent / "data"
         self.model_name = model_name
+        self.industry = industry
         self.model = None
         self.faiss_index = None
         self.documents = []
         self.metadata = []
         self.content_ids = []
 
-        # Paths
-        self.data_storage_dir = self.data_dir / "vectorstore"
+        # Paths — industry-specific when requested
+        base_vs_dir = self.data_dir / "vectorstore"
+        if self.industry:
+            self.data_storage_dir = base_vs_dir / self.industry
+        else:
+            self.data_storage_dir = base_vs_dir
         self.data_storage_dir.mkdir(exist_ok=True, parents=True)
         self.index_path = self.data_storage_dir / "faiss_index.bin"
         self.documents_path = self.data_storage_dir / "documents.pkl"
@@ -257,5 +277,13 @@ class VectorStore:
         if self.executor:
             self.executor.shutdown(wait=True)
 
-# Global instance
-embedding_service = VectorStore()
+# Global instance — uses active industry from settings when available
+def _create_embedding_service() -> VectorStore:
+    try:
+        from app.core.settings import settings
+        return VectorStore(industry=settings.active_industry.value)
+    except Exception:
+        return VectorStore()
+
+
+embedding_service = _create_embedding_service()

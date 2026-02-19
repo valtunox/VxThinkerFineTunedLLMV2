@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from app.core.industry import Industry, get_industry_config, INDUSTRY_REGISTRY  # noqa: F401
+
 # --- 1. Enumerations ---
 class ModelProvider(str, Enum):
     """Supported LLM providers - inherits from str for JSON/Env compatibility"""
@@ -83,6 +85,21 @@ def _get_database_url_from_db_config() -> Optional[str]:
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
     
+    # Industry
+    active_industry: Industry = Industry.CLOUD
+
+    @property
+    def industry_datasets_dir(self) -> str:
+        return f"app/data/datasets/{self.active_industry.value}/"
+
+    @property
+    def industry_models_dir(self) -> str:
+        return f"app/data/models/{self.active_industry.value}/"
+
+    @property
+    def industry_vectorstore_dir(self) -> str:
+        return f"app/data/vectorstore/{self.active_industry.value}/"
+
     # Application
     app_name: str = "AI AI Cloud Platform"
     app_version: str = "3.0.0"
@@ -298,6 +315,11 @@ def get_voice_config() -> Dict[str, Any]:
         "local_asr_model": settings.local_asr_model,
         "local_tts_model": settings.local_tts_model,
     }
+
+def get_active_industry_config() -> Dict[str, Any]:
+    """Return the industry-specific config for the currently active industry."""
+    return get_industry_config(settings.active_industry)
+
 
 # --- 6. Aliases for Backward Compatibility ---
 # These ensure any existing agents still work with the new Settings structure
