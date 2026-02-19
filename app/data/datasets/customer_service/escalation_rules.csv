@@ -1,0 +1,41 @@
+trigger_condition,priority,escalation_target,sla_hours,category
+"Customer mentions legal action or lawsuit","critical","legal_team",1,legal
+"Data breach or unauthorized access reported","critical","security_team",0.5,security
+"Customer revenue >$100K annually and unresolved after 2 hours","high","senior_account_manager",2,enterprise
+"Service outage affecting multiple customers","critical","engineering_on_call",0.5,technical
+"Payment processing failure on live transactions","critical","payment_ops_team",1,billing
+"Customer threatens to churn within 30 days","high","retention_specialist",4,retention
+"Ticket unresolved after 24 hours","high","team_lead",24,sla_breach
+"Customer requests GDPR data deletion","high","privacy_officer",4,compliance
+"Abusive or threatening language detected","high","senior_agent_and_security",1,safety
+"Third consecutive contact for same issue","high","senior_support_engineer",2,repeat_contact
+"Social media complaint with >1000 engagements","critical","pr_team_and_support_lead",1,reputation
+"Enterprise customer reports API downtime","critical","engineering_team",1,technical
+"Billing dispute exceeding $5000","high","finance_manager",4,billing
+"Customer reports PII exposure","critical","security_and_legal_team",0.5,security
+"VIP customer (C-suite) contacts support","high","dedicated_account_manager",1,enterprise
+"Integration failure affecting customer operations","high","integration_specialist",2,technical
+"Customer satisfaction score below 2/10","high","customer_success_manager",4,satisfaction
+"Ticket reopened more than twice","high","quality_assurance_lead",4,quality
+"Accessibility complaint from disabled user","high","product_team_and_compliance",4,accessibility
+"System performance degradation >50% from baseline","critical","site_reliability_team",1,technical
+"Customer requests executive escalation","high","director_of_support",2,executive
+"Fraud or suspicious account activity detected","critical","fraud_team",1,security
+"SLA breach within 1 hour of deadline","high","team_lead_and_account_manager",1,sla_breach
+"Customer reports data loss or corruption","critical","data_engineering_team",1,technical
+"Regulatory compliance inquiry from government","critical","legal_and_compliance_team",2,compliance
+"New enterprise onboarding blocked by technical issue","high","onboarding_specialist",4,enterprise
+"Customer in healthcare vertical reports HIPAA concern","critical","compliance_officer",1,compliance
+"Concurrent tickets from same organization >5","high","account_manager",2,enterprise
+"Feature request from top-10 customer by revenue","medium","product_manager",24,product
+"Customer reports competitor offering migration assistance","high","retention_team",4,retention
+"Webhook or API integration failure lasting >1 hour","high","platform_engineering",2,technical
+"Customer unable to access account for >4 hours","high","identity_team",4,account_access
+"Negative review posted on G2 or Capterra","medium","customer_success_and_marketing",8,reputation
+"Customer reports billing for cancelled subscription","high","billing_specialist",4,billing
+"Multi-region service degradation detected","critical","infrastructure_team",0.5,technical
+"Customer with pending renewal reports dissatisfaction","high","renewal_manager",4,retention
+"Agent unable to resolve after consulting knowledge base","medium","subject_matter_expert",4,knowledge_gap
+"Customer in financial services reports audit requirement","high","compliance_team",8,compliance
+"Mobile app crash reported by >10 users simultaneously","critical","mobile_engineering_team",1,technical
+"Ticket contains keywords: urgent, emergency, critical, asap","high","senior_agent",2,priority_keywords

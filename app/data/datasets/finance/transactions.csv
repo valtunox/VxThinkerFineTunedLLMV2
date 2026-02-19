@@ -1,0 +1,71 @@
+transaction_id,type,amount,currency,category,description,risk_score,flagged
+TXN-0001,credit,4500.00,USD,payroll,"Monthly salary deposit - Acme Corp",0.05,false
+TXN-0002,debit,1850.00,USD,rent,"Monthly office lease payment - Suite 400",0.02,false
+TXN-0003,debit,127.50,USD,utilities,"Electricity bill - Pacific Gas & Electric",0.01,false
+TXN-0004,credit,12750.00,USD,invoice,"Client payment - Q3 consulting engagement",0.08,false
+TXN-0005,debit,9999.00,USD,transfer,"Wire transfer to offshore account - Cayman Islands",0.89,true
+TXN-0006,debit,42.99,USD,subscription,"Monthly SaaS subscription - Slack Business+",0.01,false
+TXN-0007,credit,250000.00,USD,investment,"Venture capital funding round - Series A tranche",0.15,false
+TXN-0008,debit,3200.00,EUR,travel,"Business travel - Frankfurt conference flights and hotel",0.12,false
+TXN-0009,debit,89.99,USD,insurance,"Monthly professional liability insurance premium",0.01,false
+TXN-0010,credit,1500.00,USD,refund,"Product return refund - Order #78234",0.06,false
+TXN-0011,debit,15000.00,USD,equipment,"Server hardware purchase - Dell PowerEdge R750",0.08,false
+TXN-0012,debit,9800.00,USD,transfer,"Structured deposits just under reporting threshold",0.95,true
+TXN-0013,credit,6200.00,GBP,invoice,"Client payment - UK marketing campaign deliverables",0.10,false
+TXN-0014,debit,450.00,USD,office_supplies,"Office furniture and supplies - Staples order",0.02,false
+TXN-0015,debit,2100.00,USD,professional_services,"Legal fees - contract review and compliance audit",0.04,false
+TXN-0016,credit,8900.00,USD,sales,"Product sales revenue - online store weekly settlement",0.05,false
+TXN-0017,debit,175.00,USD,subscription,"Annual domain registration and SSL certificates",0.01,false
+TXN-0018,debit,50000.00,USD,transfer,"Large wire to newly opened account - same day request",0.82,true
+TXN-0019,credit,3400.00,CAD,invoice,"Consulting fee payment from Canadian subsidiary",0.07,false
+TXN-0020,debit,720.00,USD,marketing,"Google Ads campaign - monthly spend",0.03,false
+TXN-0021,debit,14500.00,USD,payroll,"Biweekly payroll batch - 3 employees",0.04,false
+TXN-0022,credit,22000.00,USD,loan,"Business line of credit drawdown",0.10,false
+TXN-0023,debit,5500.00,USD,loan_payment,"Monthly loan repayment - SBA loan #4421",0.03,false
+TXN-0024,debit,9950.00,USD,cash_withdrawal,"Multiple cash withdrawals same day different branches",0.91,true
+TXN-0025,credit,780.00,USD,interest,"Quarterly interest earned on business savings account",0.01,false
+TXN-0026,debit,3300.00,USD,software,"Annual CRM license renewal - Salesforce Enterprise",0.04,false
+TXN-0027,debit,18500.00,JPY,transfer,"International wire to Japanese supplier - electronics parts",0.18,false
+TXN-0028,credit,45000.00,USD,sales,"Large bulk order payment - retail distributor",0.12,false
+TXN-0029,debit,299.00,USD,subscription,"Monthly cloud hosting - AWS reserved instances",0.01,false
+TXN-0030,debit,1200.00,USD,training,"Employee training program - certification courses",0.02,false
+TXN-0031,credit,9999.00,USD,deposit,"Cash deposit just under CTR threshold - 3rd this week",0.93,true
+TXN-0032,debit,650.00,USD,maintenance,"HVAC maintenance service - annual contract",0.01,false
+TXN-0033,debit,8750.00,USD,consulting,"Management consulting retainer - McKinsey engagement",0.06,false
+TXN-0034,credit,15600.00,EUR,invoice,"European client payment - software development milestone",0.09,false
+TXN-0035,debit,425.00,USD,telecommunications,"Monthly phone and internet services - AT&T Business",0.01,false
+TXN-0036,debit,2800.00,USD,taxes,"Quarterly estimated tax payment - federal",0.03,false
+TXN-0037,debit,1100.00,USD,taxes,"State sales tax remittance - California",0.03,false
+TXN-0038,credit,6800.00,USD,sales,"Monthly recurring subscription revenue - 34 customers",0.04,false
+TXN-0039,debit,12000.00,USD,transfer,"Rapid sequential transfers to multiple new beneficiaries",0.87,true
+TXN-0040,credit,950.00,USD,refund,"Vendor credit for defective merchandise return",0.03,false
+TXN-0041,debit,4200.00,USD,benefits,"Employee health insurance premiums - monthly",0.03,false
+TXN-0042,debit,175000.00,USD,real_estate,"Commercial property down payment - 123 Main St",0.22,false
+TXN-0043,credit,2200.00,AUD,invoice,"Australian partner royalty payment - Q2",0.08,false
+TXN-0044,debit,560.00,USD,shipping,"FedEx monthly shipping account settlement",0.02,false
+TXN-0045,debit,3500.00,USD,marketing,"Trade show booth rental and materials - CES 2025",0.04,false
+TXN-0046,credit,28000.00,USD,grant,"Small business innovation research grant disbursement",0.07,false
+TXN-0047,debit,890.00,USD,accounting,"Monthly bookkeeping service - QuickBooks ProAdvisor",0.02,false
+TXN-0048,debit,9990.00,USD,cash_withdrawal,"Large cash withdrawal to unknown third party",0.88,true
+TXN-0049,credit,11500.00,USD,sales,"Wholesale order payment - retailer purchase order",0.06,false
+TXN-0050,debit,2400.00,USD,lease,"Vehicle lease payment - company fleet",0.02,false
+TXN-0051,debit,15800.00,CHF,transfer,"Wire to Swiss numbered account - new beneficiary",0.92,true
+TXN-0052,credit,4100.00,USD,commission,"Sales commission payment - affiliate program",0.05,false
+TXN-0053,debit,675.00,USD,security,"Cybersecurity monitoring service - CrowdStrike annual",0.02,false
+TXN-0054,debit,1950.00,USD,recruitment,"Job posting fees - LinkedIn and Indeed premium",0.03,false
+TXN-0055,credit,7300.00,USD,sales,"E-commerce platform weekly payout - Shopify",0.04,false
+TXN-0056,debit,340.00,USD,office_supplies,"Printer ink and paper - monthly restock",0.01,false
+TXN-0057,credit,19000.00,USD,investment,"Angel investor capital contribution",0.14,false
+TXN-0058,debit,5200.00,USD,professional_services,"Annual external audit fees - Deloitte",0.05,false
+TXN-0059,debit,2750.00,USD,insurance,"Commercial general liability insurance quarterly",0.02,false
+TXN-0060,credit,3600.00,SGD,invoice,"Singapore client milestone payment - mobile app",0.09,false
+TXN-0061,debit,480.00,USD,subscription,"Project management tools - Jira and Confluence",0.01,false
+TXN-0062,debit,24999.00,USD,transfer,"Wire transfer split into two transactions same day",0.86,true
+TXN-0063,credit,8400.00,USD,sales,"Government contract progress payment - Phase 2",0.06,false
+TXN-0064,debit,1350.00,USD,entertainment,"Client dinner and entertainment expenses",0.04,false
+TXN-0065,debit,7600.00,USD,equipment,"MacBook Pro fleet refresh - 4 units",0.06,false
+TXN-0066,credit,16200.00,USD,invoice,"Retainer payment from law firm - IT support contract",0.07,false
+TXN-0067,debit,225.00,USD,charitable,"Monthly donation to local food bank",0.01,false
+TXN-0068,debit,9500.00,USD,transfer,"Funds sent to high-risk jurisdiction - Myanmar",0.90,true
+TXN-0069,credit,5800.00,USD,sales,"Consulting workshop registration fees - 29 attendees",0.04,false
+TXN-0070,debit,3100.00,USD,marketing,"Social media advertising spend - Meta Business Suite",0.03,false
