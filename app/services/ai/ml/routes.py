@@ -53,10 +53,26 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
+from app.core.industry import Industry, get_industry_config
+
 router = APIRouter()
 router_v2 = APIRouter()
 router_v3 = APIRouter()
 logger = logging.getLogger("vallm")
+
+
+def _resolve_industry(industry_param: Optional[str] = None) -> Industry:
+    """Resolve industry from query param or fall back to settings."""
+    if industry_param:
+        try:
+            return Industry(industry_param)
+        except ValueError:
+            pass
+    try:
+        from app.core.settings import settings
+        return settings.active_industry
+    except Exception:
+        return Industry.CLOUD
 
 
 def _summarize_context(results: list, max_items: int = 3, preview_chars: int = 180) -> str:
@@ -199,6 +215,7 @@ class QueryRequest(BaseModel):
     top_k: Optional[int] = 5
     filter_type: Optional[str] = None
     include_reasoning: Optional[bool] = True
+    industry: Optional[str] = None
 
 
 class DeveloperRequest(BaseModel):
@@ -222,6 +239,7 @@ class V3QueryRequest(BaseModel):
     top_k: Optional[int] = 10
     include_reasoning: Optional[bool] = True
     focus: Optional[str] = "cloud_devops"
+    industry: Optional[str] = None
 
 
 CLOUD_DEVOPS_KEYWORDS = {
