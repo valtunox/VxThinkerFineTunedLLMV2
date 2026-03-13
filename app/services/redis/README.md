@@ -1,7 +1,7 @@
 # RedisService Usage
 
 ## Overview
-`RedisService` is an async, enterprise-ready service for advanced Redis operations in cloud environments. It supports key-value, hash, pub/sub, backup/restore, and more.
+`RedisService` is an async, enterprise-ready service for advanced Redis operations for caching, sessions, and campaigns. It supports key-value, hash, pub/sub, backup/restore, and more.
 
 ## Features
 - Set, get, delete, and list keys

@@ -1,11 +1,16 @@
-# VaLLM: Sovereign AI for Cloud Operations
+# VaLLM Specialist Model
 
-> **Mission**: A private, production-grade AI reasoning engine that understands *your* specific cloud infrastructure. Unlike generic LLMs, VaLLM is grounded in your actual production data (logs, resources, configurations) and provides DevOps intelligence without data leaving your network.
+> **Multi-Purpose AI for Document Intelligence & Business Analytics**
+
+A private, production-grade AI specialist model for document verification, financial analysis, billing/invoice processing, accounting automation, and business recommendations. VaLLM is grounded in your organization's actual documents, transactions, and business data to deliver precise, domain-specific intelligence without data leaving your network.
+
+**Author**: Joel Otepa Wembo - [joelwembo.com](https://joelwembo.com)
 
 ---
 
 ## Table of Contents
 
+- [Use Cases](#use-cases)
 - [Architecture](#architecture)
 - [Features](#features)
 - [Quick Start](#quick-start)
@@ -19,41 +24,101 @@
 
 ---
 
+## Use Cases
+
+### Document Verification & Analysis
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Is this invoice authentic? Check for tampering. | Runs OCR extraction, cross-references entity data (vendor, amounts, dates), checks structural consistency, returns confidence score with risk flags. |
+| Extract all line items, tax amounts, and payment terms from this PDF. | Document parser extracts structured fields and classifies document type (invoice, receipt, contract, statement). |
+| Compare these two contracts and highlight differences. | Document matching computes content similarity, metadata match, structural similarity, and entity overlap. |
+| Find duplicate or near-duplicate invoices. | Deduplication pipeline uses content hashing and vector similarity to flag potential duplicates. |
+
+### Financial Analysis & Accounting
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Reconcile this bank statement against accounts payable. | Matches transactions by amount, date proximity, and reference number; flags unmatched items. |
+| Categorize these 500 transactions into expense categories. | Entity scoring model classifies each transaction with confidence scores and SHAP explanations. |
+| What's our spending trend Q1 vs Q2, and forecast Q3? | Financial prediction model analyzes historical patterns, seasonal trends, and market conditions. |
+| Flag transactions above $10K lacking proper documentation. | Cross-references transaction records against document store for compliance gaps. |
+
+### Billing & Invoice Processing
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Process this batch of 200 scanned receipts. | OCR pipeline (pdfplumber -> pypdf -> Tesseract) extracts amounts, dates, vendors into structured records. |
+| Which invoices are past due and total outstanding? | Queries transaction store by due date and payment status, aggregates by vendor, age, priority. |
+| Match incoming payments to open invoices. | Amount matching, reference number lookup, and fuzzy vendor matching for auto-reconciliation. |
+
+### Business Recommendations
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Where can we reduce costs based on spending data? | Analyzes spending patterns, vendor concentration, and category trends; ranks optimization opportunities by impact. |
+| Which vendors should we consolidate for better pricing? | Clusters vendor data by category, analyzes spend distribution, identifies consolidation opportunities. |
+| What compliance risks exist in our document workflow? | Scans verification records for missing approvals, expired documents, incomplete audit trails. |
+
+### Entity Scoring & Risk Assessment
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Score this vendor application for risk level. | XGBoost model evaluates industry, company size, risk indicators, region; returns score with SHAP breakdown. |
+| Rate creditworthiness of this business entity. | Combines financial statement analysis, transaction history, and industry benchmarks into composite score. |
+
+### Semantic Search & Retrieval
+
+| Question | What VaLLM Does |
+|----------|-----------------|
+| Find all documents related to "tax withholding compliance 2025". | Hybrid BM25 + dense vector search with cross-encoder reranking. |
+| Search for contracts similar to this lease agreement. | Encodes query document and performs nearest-neighbor search across the vector store. |
+
+---
+
 ## Architecture
 
-VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reasoning** architecture.
+VaLLM uses a hybrid **RAG + Multi-Agent + Scoring** architecture.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    User / Application                        │
-└────────────────────────┬────────────────────────────────────┘
-                         │ HTTP Request
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              FastAPI Gateway (app.py)                        │
-│  ├─ Rate Limiting        ├─ Metrics Collection              │
-│  ├─ Request Logging      └─ Circuit Breaker                 │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-         ┌───────────────┼───────────────┐
-         ▼               ▼               ▼
-    ┌─────────┐    ┌──────────┐    ┌──────────┐
-    │ /search │    │ /api/v1  │    │ /api/v2  │
-    └────┬────┘    └────┬─────┘    └────┬─────┘
-         │              │               │
-         ▼              ▼               ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    VectorStore (FAISS)                       │
-│  ├─ Embedding Model: all-MiniLM-L6-v2 (384-dim)             │
-│  ├─ L1 Cache: Embeddings (TTL 1h)                           │
-│  └─ L2 Cache: Search Results (TTL 30m)                      │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              ReasoningEngine (reasoning.py)                  │
-│  Search → Analyze → Synthesize → Decide                      │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                    User / Application                        |
++----------------------------+--------------------------------+
+                             | HTTP Request
+                             v
++-------------------------------------------------------------+
+|              FastAPI Gateway (app.py)                        |
+|  +- Rate Limiting        +- Metrics Collection              |
+|  +- Request Logging      +- CORS / Auth                     |
++----------------------------+--------------------------------+
+                             |
+         +-------------------+-------------------+
+         v                   v                   v
+    +---------+        +-----------+       +-----------+
+    | /search |        | /api/v1   |       | /api/v2   |
+    +----+----+        +-----+-----+       +-----+-----+
+         |                   |                   |
+         v                   v                   v
++-------------------------------------------------------------+
+|                 VectorStore (FAISS)                          |
+|  +- Embedding: BGE / all-MiniLM-L6-v2 (384-dim)            |
+|  +- L1 Cache: Embeddings (TTL 1h)                           |
+|  +- L2 Cache: Search Results (TTL 30m)                      |
++----------------------------+--------------------------------+
+                             |
+         +-------------------+-------------------+
+         v                   v                   v
++----------------+  +-----------------+  +------------------+
+| Document OCR   |  | XGBoost Scoring |  | Multi-LLM Router |
+| pdfplumber     |  | SHAP Explain    |  | OpenAI/Anthropic |
+| pypdf/Tesseract|  | Risk Assessment |  | Google/Ollama    |
++----------------+  +-----------------+  +------------------+
+                             |
+                             v
++-------------------------------------------------------------+
+|              Multi-Agent Orchestration                       |
+|  DocumentAnalysis -> Verification -> Financial -> Recommend  |
++-------------------------------------------------------------+
 ```
 
 ### Core Components
@@ -61,22 +126,32 @@ VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reaso
 | Component | Description |
 |-----------|-------------|
 | **VectorStore** | FAISS-based semantic search with sentence-transformers embeddings |
-| **ReasoningEngine** | Multi-step chain-of-thought reasoning for cloud operations |
-| **Cache** | Multi-level TTL caching (embeddings L1, search results L2) |
-| **Metrics** | Prometheus metrics for observability |
-| **Health** | Kubernetes-compatible readiness/liveness probes |
+| **Document OCR** | Multi-fallback text extraction (pdfplumber -> pypdf -> Tesseract) |
+| **Multi-LLM Router** | Intelligent routing between OpenAI, Anthropic, Google, Ollama, and local models |
+| **XGBoost Scoring** | Entity and risk scoring with SHAP explainability |
+| **Document Matching** | Content similarity, deduplication, and cross-referencing |
+| **Financial Prediction** | Trend analysis and forecasting with confidence intervals |
+| **Multi-Agent Pipeline** | Document analysis, verification, financial analysis, and recommendation agents |
+| **Kafka Events** | Async event streaming for document processing and data imports |
+| **Celery Tasks** | Background processing for OCR, imports, and batch operations |
+| **Monitoring** | Prometheus metrics, structured logging, health probes |
 
 ---
 
 ## Features
 
-- **Semantic Search**: Query infrastructure knowledge using natural language
-- **Chain-of-Thought Reasoning**: Multi-step analysis with confidence scoring
-- **Multi-Cloud Support**: AWS, Azure, GCP, and Kubernetes intelligence
-- **100% Offline**: No external API calls required - full data sovereignty
-- **Production Ready**: Rate limiting, circuit breaker, structured logging
+- **Document Verification**: OCR extraction, authenticity checks, confidence scoring with risk flags
+- **Financial Analysis**: Transaction reconciliation, categorization, trend forecasting
+- **Billing Processing**: Batch invoice/receipt processing, payment matching, aging reports
+- **Business Recommendations**: Cost optimization, vendor consolidation, compliance risk detection
+- **Entity Scoring**: XGBoost risk assessment with SHAP explainability
+- **Semantic Search**: Hybrid BM25 + dense vector search with cross-encoder reranking
+- **Multi-LLM Support**: OpenAI, Anthropic Claude, Google Gemini, Qwen, DeepSeek, HuggingFace, Ollama
+- **Multi-Industry**: Configurable for HEALTHCARE, FINANCE, CLOUD, AUTOMATION, CUSTOMER_SERVICE
+- **Multi-Tenant**: Organization-scoped data isolation with PostgreSQL
+- **100% On-Premise Option**: Full data sovereignty with local models via Ollama
+- **Production Ready**: Rate limiting, structured logging, Celery task queues, Kafka events
 - **Observable**: Prometheus metrics, Grafana dashboards, health probes
-- **Scalable**: Docker Compose, Kubernetes (AKS), horizontal scaling
 
 ---
 
@@ -85,6 +160,8 @@ VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reaso
 ### Prerequisites
 
 - Python 3.11+
+- PostgreSQL 14+ (for ORM models)
+- Redis (for Celery broker and caching)
 - Docker and Docker Compose (recommended)
 - 4GB+ RAM
 
@@ -92,9 +169,9 @@ VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reaso
 
 ```bash
 # Clone and navigate to project
-cd va_llm_v1
+cd va_llm_specialist_model
 
-# Start full stack (API + Redis + Prometheus + Grafana)
+# Start full stack (API + Redis + PostgreSQL + Prometheus + Grafana)
 docker-compose up -d
 
 # Check status
@@ -102,8 +179,8 @@ docker-compose ps
 ```
 
 Services will be available at:
-- **API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
+- **API**: http://localhost:8746
+- **API Docs**: http://localhost:8746/docs
 - **Prometheus**: http://localhost:9090
 - **Grafana**: http://localhost:3000
 
@@ -124,29 +201,38 @@ python -m app.app
 The service will:
 1. Download embedding model (first run only, ~80MB)
 2. Auto-build FAISS index if not present (when `VALLM_AUTO_PRECOMPUTE=true`)
-3. Start API server on http://localhost:8000
+3. Auto-train LLM if not present (when `VALLM_AUTO_TRAIN=true`)
+4. Start API server on http://localhost:8746
 
 ### Test the API
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8746/health
 
-# Query endpoint
-curl -X POST http://localhost:8000/api/model/v1/query \
+# Semantic search
+curl -X POST http://localhost:8746/search \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Why are IAM access keys not rotated in 90 days?",
-    "top_k": 5,
-    "include_reasoning": true
+    "query": "invoices with missing tax documentation",
+    "top_k": 5
   }'
 
-# Developer endpoint (Terraform generation)
-curl -X POST http://localhost:8000/api/model/v1/developer \
+# Text generation
+curl -X POST http://localhost:8746/generate \
   -H "Content-Type: application/json" \
   -d '{
-    "query": "Create Terraform config for EKS cluster",
-    "include_code": true
+    "prompt": "Analyze this invoice for compliance issues:",
+    "max_new_tokens": 200
+  }'
+
+# RAG query (V1)
+curl -X POST http://localhost:8746/api/models/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are the top overdue invoices this quarter?",
+    "top_k": 5,
+    "include_reasoning": true
   }'
 ```
 
@@ -161,7 +247,7 @@ curl -X POST http://localhost:8000/api/model/v1/developer \
 docker build -t vallm:latest .
 
 # Run container
-docker run -p 8000:8000 -v $(pwd)/app/data:/app/data vallm:latest
+docker run -p 8746:8746 -v $(pwd)/app/data:/app/data vallm:latest
 ```
 
 ### Docker Compose (Full Stack)
@@ -178,14 +264,13 @@ docker-compose down
 ```
 
 **Included Services**:
-- `vallm`: FastAPI application (port 8000)
-- `redis`: Caching layer (port 6379)
+- `vallm`: FastAPI application (port 8746)
+- `redis`: Celery broker and caching (port 6379)
+- `postgres`: Document and transaction storage (port 5432)
 - `prometheus`: Metrics collection (port 9090)
 - `grafana`: Metrics visualization (port 3000)
 
-### Kubernetes (AKS)
-
-Manifests are in `deployment/kubernetes/`:
+### Kubernetes
 
 ```bash
 # Apply manifests
@@ -204,10 +289,14 @@ See `deployment.md` for detailed instructions.
 - Docker build and push
 - Deploy to VM or Kubernetes
 
+**GitLab CI** (`.gitlab-ci.yml`):
+- Multi-stage pipeline
+- Container registry push
+- Kubernetes deployment
+
 **Azure Pipelines** (`azure-pipelines.yml`):
 - Build and push to Azure Container Registry
-- Deploy to VM via SSH
-- Deploy to AKS
+- Deploy to VM via SSH or AKS
 
 ---
 
@@ -219,10 +308,11 @@ See `deployment.md` for detailed instructions.
 |--------|----------|-------------|
 | GET | `/` | HTML status page |
 | GET | `/health` | Basic health check |
-| GET | `/health/ready` | Readiness probe (K8s) |
-| GET | `/health/live` | Liveness probe (K8s) |
-| GET | `/metrics` | Prometheus metrics |
 | GET | `/docs` | OpenAPI documentation |
+| GET | `/stats` | Vector store and cache statistics |
+| GET | `/logs` | View recent logs |
+| GET | `/logs/stats` | Log statistics |
+| DELETE | `/logs/clear` | Clear logs (with backup) |
 | POST | `/search` | Vector similarity search |
 | POST | `/generate` | Text generation (if model loaded) |
 
@@ -230,34 +320,40 @@ See `deployment.md` for detailed instructions.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/model/v1/query` | Main RAG query with reasoning |
-| POST | `/api/model/v1/developer` | Developer/Terraform assistance |
-| POST | `/api/model/v1/terminal` | CLI command assistance |
+| POST | `/api/models/v1/query` | RAG query with chain-of-thought reasoning |
+| POST | `/api/models/v1/developer` | Developer assistance |
+| POST | `/api/models/v1/terminal` | CLI/terminal assistance |
 
 **Example Request**:
 ```json
 {
-  "query": "How do I provision an EC2 instance?",
+  "query": "Which vendors have the most overdue invoices?",
   "top_k": 5,
-  "include_reasoning": true,
-  "filter_type": "resource"
+  "include_reasoning": true
 }
 ```
 
-### V2 Endpoints - NLP + Documents
+### V2 Endpoints - NLP + Document Analysis
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/model/v2/query` | NLP-enhanced query with entity extraction |
-| POST | `/api/model/v2/upload` | Document/image upload for analysis |
-| POST | `/api/model/v2/extract` | Entity extraction from text |
-| GET | `/api/model/v2/status` | NLP capability status |
+| POST | `/api/models/v2/query` | NLP-enhanced query with entity extraction |
+| POST | `/api/models/v2/upload` | Document/image upload for OCR analysis |
+| POST | `/api/models/v2/extract` | Entity extraction from text |
+| GET | `/api/models/v2/status` | NLP capability status |
 
-### V3 Endpoints - Incident Analysis
+### V3 Endpoints - Analytics & Predictions
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/model/v3/query` | Incident pattern detection |
+| POST | `/api/models/v3/query` | Financial analytics and pattern detection |
+
+### Monitoring Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/monitoring/health` | Detailed health with dependency checks |
+| GET | `/metrics` | Prometheus metrics |
 
 ---
 
@@ -268,17 +364,21 @@ See `deployment.md` for detailed instructions.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VALLM_AUTO_PRECOMPUTE` | `true` | Auto-build FAISS index if missing |
-| `VALLM_AUTO_TRAIN` | `false` | Auto-train LLM model if missing |
+| `VALLM_AUTO_TRAIN` | `true` | Auto-train LLM model if missing |
 | `USE_CUDA` | `false` | Enable GPU acceleration |
 | `VALLM_JSON_LOGGING` | `false` | Enable structured JSON logging |
 | `VALLM_RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
 | `VALLM_RATE_LIMIT_PER_MINUTE` | `60` | Max requests per minute per client |
 | `VALLM_CACHE_EMBEDDINGS` | `true` | Enable embedding cache (L1) |
 | `VALLM_CACHE_SEARCH` | `true` | Enable search result cache (L2) |
-| `ENVIRONMENT` | `production` | Deployment environment |
-| `PORT` | `8000` | API server port |
+| `DATABASE_URL` | - | PostgreSQL connection string |
 | `REDIS_HOST` | `redis` | Redis hostname |
 | `REDIS_PORT` | `6379` | Redis port |
+| `OPENAI_API_KEY` | - | OpenAI API key (for multi-LLM routing) |
+| `ANTHROPIC_API_KEY` | - | Anthropic API key |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka brokers |
+| `ENVIRONMENT` | `production` | Deployment environment |
 
 ### GPU Support
 
@@ -291,15 +391,16 @@ pip uninstall faiss-cpu
 pip install faiss-gpu
 ```
 
-### Changing the Embedding Model
+### Multi-Industry Configuration
 
-Edit `app/embeddings.py`:
+VaLLM supports industry-specific configurations:
+
 ```python
-vector_store = VectorStore(
-    data_dir=data_dir,
-    model_name="all-mpnet-base-v2"  # Higher quality, larger model
-)
+# Set via environment or settings
+VALLM_INDUSTRY = "FINANCE"  # HEALTHCARE, FINANCE, CLOUD, AUTOMATION, CUSTOMER_SERVICE
 ```
+
+Each industry mode adjusts entity extraction rules, classification categories, compliance checks, and scoring weights.
 
 ---
 
@@ -315,38 +416,27 @@ Available at `/metrics`:
 - `vector_search_duration_seconds` - Search latency
 - `cache_hits_total` / `cache_misses_total` - Cache effectiveness
 - `llm_generation_requests_total` - LLM generation operations
-
-### Grafana Dashboards
-
-Pre-configured dashboards in `monitoring/grafana/dashboards/`:
-- VaLLM Overview
-- API Performance
-- Cache Metrics
-- System Health
-
-Access Grafana at http://localhost:3000 (default: admin/admin)
+- `document_ocr_requests_total` - Document processing operations
+- `scoring_requests_total` - Entity scoring operations
 
 ### Health Checks
 
 ```bash
 # Basic health
-curl http://localhost:8000/health
+curl http://localhost:8746/health
 
-# Readiness (checks vector store, FAISS, memory)
-curl http://localhost:8000/health/ready
-
-# Liveness
-curl http://localhost:8000/health/live
+# Detailed health (monitoring router)
+curl http://localhost:8746/monitoring/health
 ```
 
 ### Logs
 
 ```bash
 # View recent logs via API
-curl http://localhost:8000/logs
+curl http://localhost:8746/logs
 
 # Log statistics
-curl http://localhost:8000/logs/stats
+curl http://localhost:8746/logs/stats
 
 # Docker logs
 docker-compose logs -f vallm
@@ -357,81 +447,89 @@ docker-compose logs -f vallm
 ## Project Structure
 
 ```
-va_llm_v1/
-├── app/                          # Main application
-│   ├── app.py                    # FastAPI application
-│   ├── embeddings.py             # VectorStore (FAISS)
-│   ├── reasoning.py              # ReasoningEngine
-│   ├── routes.py                 # All API endpoints (v1, v2, v3)
-│   ├── precompute.py             # Build FAISS index
-│   ├── train.py                  # LLM fine-tuning
-│   ├── cache.py                  # Multi-level caching
-│   ├── circuit_breaker.py        # Resilience pattern
-│   ├── exceptions.py             # Custom exceptions
-│   ├── health.py                 # Health check endpoints
-│   ├── logging_config.py         # Structured logging
-│   ├── metrics.py                # Prometheus metrics
-│   ├── rate_limit.py             # Rate limiting
-│   ├── data/                     # Data directory
-│   │   ├── *.csv                 # Knowledge base files
-│   │   ├── *.pdf                 # PDF documents
-│   │   ├── vectorstore/          # FAISS index artifacts
-│   │   └── model/                # Trained model artifacts
-│   └── tests/                    # Test files
-├── deployment/                   # Deployment configs
-│   ├── kubernetes/               # K8s manifests
-│   └── vm/                       # VM deployment
-├── monitoring/                   # Monitoring stack
-│   ├── prometheus.yml            # Prometheus config
-│   └── grafana/                  # Grafana dashboards
-├── scripts/                      # Utility scripts
-├── Dockerfile                    # Container image
-├── docker-compose.yml            # Full stack setup
-├── requirements.txt              # Python dependencies
-├── azure-pipelines.yml           # Azure DevOps CI/CD
-└── .github/workflows/            # GitHub Actions CI/CD
+va_llm_specialist_model/
++-- app/                              # Main application
+|   +-- app.py                        # FastAPI application entry point
+|   +-- __init__.py
+|   +-- auth/                         # Authentication & rate limiting
+|   +-- core/                         # Settings, logging, model registry
+|   +-- orm/                          # SQLAlchemy models (Document, Transaction, etc.)
+|   +-- schemas/                      # Pydantic request/response schemas
+|   +-- services/
+|   |   +-- ai/
+|   |   |   +-- agents/              # Multi-agent orchestration
+|   |   |   |   +-- base_agent.py    # Document, Verification, Financial, Recommendation agents
+|   |   |   +-- ml/
+|   |   |       +-- embedding.py     # Embedding service (BGE / MiniLM)
+|   |   |       +-- search.py        # Hybrid BM25 + dense search
+|   |   |       +-- scoring.py       # XGBoost entity scoring
+|   |   |       +-- matching.py      # Document matching & deduplication
+|   |   |       +-- explainability.py # SHAP feature importance
+|   |   |       +-- ocr.py           # Document OCR pipeline
+|   |   |       +-- train.py         # LLM fine-tuning
+|   |   |       +-- precompute.py    # FAISS index builder
+|   |   |       +-- llm_router.py    # Multi-LLM routing (OpenAI/Anthropic/Ollama)
+|   |   |       +-- models/          # ML model implementations
+|   |   +-- celery/                   # Celery task queue
+|   |   +-- kafka/                    # Kafka event streaming
+|   |   +-- rabbitmq/                 # RabbitMQ messaging
+|   |   +-- redis/                    # Redis caching service
+|   |   +-- monitoring/               # Prometheus metrics & health
+|   |   +-- queue/                    # Background tasks (OCR, data import)
+|   |   +-- sse/                      # Server-Sent Events
+|   |   +-- tenants/                  # Multi-tenant service
+|   +-- data/                         # Data directory
+|   |   +-- datasets/                 # CSV/PDF/JSON source files
+|   |   +-- vectorstore/              # FAISS index artifacts
+|   |   +-- models/                   # Trained model artifacts
+|   +-- tests/                        # Test files
++-- scripts/                          # Utility scripts (data fetching, preprocessing)
++-- deployment/                       # Deployment configs
++-- .github/workflows/                # GitHub Actions CI/CD
++-- .gitlab-ci.yml                    # GitLab CI/CD
++-- azure-pipelines.yml               # Azure Pipelines CI/CD
++-- Dockerfile
++-- docker-compose.yml
++-- requirements.txt
++-- requirements_analysis.txt         # Extended analysis dependencies
 ```
 
 ---
 
 ## Data Management
 
-### Knowledge Base Location
+### Knowledge Base
 
 All data is in `app/data/`:
-- `*.csv` - Structured knowledge (resources, incidents, recommendations)
-- `*.pdf` - DevOps documentation
-- `*.json` - Configuration data
+- `datasets/*.csv` - Structured document and transaction data
+- `datasets/*.pdf` - Financial documents, invoices, contracts
+- `datasets/*.json` - Configuration and reference data
 - `vectorstore/` - FAISS index and document metadata
+- `models/` - Trained model weights
 
 ### Building the Index
 
 ```bash
-# Standard precompute
-python -m app.precompute
+# Build FAISS index from datasets
+python -m app.services.ai.ml.precompute
 
-# Check index status
-python -m app.precompute --action check
+# Auto-build is enabled by default (VALLM_AUTO_PRECOMPUTE=true)
 ```
 
-### Expanding the Dataset
+### LLM Fine-Tuning
 
 ```bash
-# Generate synthetic data
-python scripts/massive_data_expansion.py
+# Train on domain-specific data
+python -m app.services.ai.ml.train --num-train-epochs 1
 
-# Rebuild index after adding data
-python -m app.precompute
+# Model saved to app/data/models/
 ```
 
-### LLM Fine-Tuning (Optional)
+### Adding New Data
 
-```bash
-# Train on CSV data
-python -m app.train --num-train-epochs 1
-
-# Model saved to app/data/model/
-```
+1. Place CSV/PDF/JSON files in `app/data/datasets/`
+2. Run `python -m app.services.ai.ml.precompute` to rebuild the index
+3. Restart the service to load the new index
 
 ---
 
@@ -441,31 +539,29 @@ python -m app.train --num-train-epochs 1
 
 **FAISS index not found**
 ```bash
-# Rebuild the index
-python -m app.precompute
+python -m app.services.ai.ml.precompute
 ```
 
 **Index has 0 vectors / generic responses**
-- Ensure CSV files exist in `app/data/`
-- Run `python -m app.precompute` to populate the index
+- Ensure data files exist in `app/data/datasets/`
+- Run precompute to populate the index
 
 **Model download failed**
 - Check internet connection (first run only)
-- Model is cached after first download (~80MB)
+- Embedding model is cached after first download (~80MB)
 
 **Out of memory**
-- Use smaller model: `all-MiniLM-L6-v2` (default, 80MB)
-- Reduce batch size in `embeddings.py`
+- Use smaller embedding model: `all-MiniLM-L6-v2` (default, 80MB)
+- Reduce batch size in embedding configuration
 - Increase container memory limits
 
-**Connection refused on health check**
-- Wait for startup to complete
-- Check logs: `docker-compose logs vallm`
+**Database connection failed**
+- Ensure PostgreSQL is running and `DATABASE_URL` is set
+- Run migrations if needed
 
 ### Debug Mode
 
 ```bash
-# Enable verbose logging
 export VALLM_JSON_LOGGING=true
 python -m app.app
 ```
@@ -476,14 +572,19 @@ python -m app.app
 
 | Category | Technologies |
 |----------|-------------|
-| **Framework** | FastAPI, Uvicorn |
-| **AI/ML** | sentence-transformers, FAISS, PyTorch, spaCy |
-| **Data** | Pandas, NumPy, PyPDF2 |
-| **Caching** | Redis, in-memory TTL cache |
+| **Framework** | FastAPI, Uvicorn, Pydantic v2 |
+| **AI/ML** | sentence-transformers, FAISS, PyTorch, XGBoost, SHAP, spaCy |
+| **LLM** | OpenAI, Anthropic Claude, Google Gemini, Qwen, DeepSeek, Ollama |
+| **Agents** | LangChain, LangGraph |
+| **OCR** | pdfplumber, pypdf, Tesseract |
+| **Database** | PostgreSQL, SQLAlchemy |
+| **Caching** | Redis |
+| **Task Queue** | Celery |
+| **Messaging** | Kafka, RabbitMQ |
 | **Monitoring** | Prometheus, Grafana |
 | **Container** | Docker, Docker Compose |
-| **Orchestration** | Kubernetes (AKS) |
-| **CI/CD** | GitHub Actions, Azure Pipelines |
+| **Orchestration** | Kubernetes (AKS/EKS) |
+| **CI/CD** | GitHub Actions, GitLab CI, Azure Pipelines |
 
 ---
 
@@ -501,48 +602,3 @@ Private - Internal use only.
 4. Submit pull request
 
 For detailed deployment instructions, see `deployment.md`.
-
-Summary of what’s in place:
-1. va_llm_v1 – Provision intent API
-New: va_llm_v1/app/services/ai/ml/cloud_routes.py
-POST /api/cloud/provision-intent
-Body: {"query": "user message"}.
-Response:
-Provisioning: query_type: "provisioning", intent (e.g. provision_vm, provision_docker, provision_database, …), payload (Golang-ready dict built from cloud_deployments.csv), confidence, match_prompt.
-Non‑provisioning: query_type one of "incident", "cost", "billing", "security", "recommendation", "other"; intent and payload are null so the agent does not call Golang.
-Uses the existing vector store over cloud_deployments (and any other CSVs). Rows with an intent column are treated as deployment rows; best match is turned into intent + payload via _raw_to_golang_payload() for VM, Kubernetes, Docker, FastAPI, static website, and database.
-app.py
-Registers the cloud router and documents the new endpoint in the API docstring.
-So va_llm_v1 is the place that decides intent and how Golang wants the request; it returns that in the payload for the agent.
-2. Precompute – Tag deployment rows
-app/services/ai/ml/precompute.py
-For each row, if the CSV has an intent column and it’s set, metadata is set with "type": "deployment".
-Lets you later restrict search to deployment rows (e.g. with filter_type="deployment") if you want.
-Re-run precompute after pulling so the FAISS index includes this metadata (and cloud_deployments.csv):
-python -m app.services.ai.ml.precompute from the va_llm_v1 root (with --dataset-dir app/data if you use it).
-3. InfinityAI cloud agent – Call va_llm, validate, then Golang
-InfinityAI/app/services/ai/agents/cloud/agent.py
-fetch_provision_intent(query)
-Calls va_llm_v1 POST /api/cloud/provision-intent.
-URL: env VA_LLM_V1_URL or VALLM_URL (default http://localhost:8002).
-Confidence threshold: PROVISION_INTENT_CONFIDENCE_MIN (default 0.2).
-Flow in handle_deployment_operation:
-LLM (OpenAI/Claude/etc.) still runs first to produce the user-facing reply.
-Call va_llm_v1 provision-intent.
-If query_type == "provisioning" and intent is set and confidence >= PROVISION_INTENT_CONFIDENCE_MIN:
-Use that intent and payload; merge in user_id, workspace_id, session_id, details.
-Trigger Golang via execute_provisioning_service(intent, payload) (unchanged).
-If query_type != "provisioning" (incidents, cost, billing, security, recommendations):
-Do not set intent or call Golang; the LLM reply is the full answer (optionally formatted by the same or another LLM).
-If va_llm_v1 is down or returns no provisioning match:
-Fallback to the existing keyword-based intent + extractors and, when a provisioning intent is found, still call the Golang API.
-So the agent scores/double-checks by only accepting provisioning when va_llm returns query_type=provisioning with sufficient confidence; then it triggers the Golang provisioner. For non‑provisioning, it only uses the LLM to format the answer.
-Flow summary
-User: “Deploy a t2.micro EC2” or “What were last week’s incidents?” or “Any cost recommendations?”
-va_llm_v1 (provision-intent):
-For “Deploy…”: returns query_type: "provisioning", intent, Golang payload.
-For incidents/cost/recommendations: returns query_type: "incident" / "cost" / "recommendation" and no intent/payload.
-Agent:
-Provisioning → merge session/user/workspace into payload → call Golang → then LLM can format the provisioning result for the user.
-Non‑provisioning → no Golang; LLM (OpenAI/Claude/etc.) formats the answer from context (e.g. incidents, cost, security, recommendations).
-Ensure va_llm_v1 is running (e.g. port 8002) and VA_LLM_V1_URL points to it when running the InfinityAI agent. After changing precompute, re-run it and restart va_llm_v1 so the new index is loaded.

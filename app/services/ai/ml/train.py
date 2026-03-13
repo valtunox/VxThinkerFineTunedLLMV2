@@ -1,17 +1,26 @@
 """
-VaLLM Training Script - Fine-tune a Causal LLM on Cloud Operations Data
+VaLLM Specialist Model - Training Script.
 
-This script trains a HuggingFace causal language model on multi-format data from app/data/datasets/
-Supported formats: CSV, JSON, TXT, PDF
+Author: Joel Otepa Wembo
+https://joelwembo.com
 
-QUICK START (run from va_llm_v1 root directory):
+Fine-tunes a causal LLM on CSV data and documents from
+app/data/datasets/ and exports the trained model to app/data/models/model/.
+Location: app/services/ai/ml/train.py.
+
+By default the script loads:
+  - All CSV files in app/data/datasets/ (primary: documents.csv)
+  - All documents in app/data/datasets/financial_documents/  (TXT, PDF, DOCX)
+  - All documents in app/data/datasets/business_documents/   (PDF, DOCX, TXT)
+
+QUICK START (run from project root directory):
 ================================================
 
-    # 1. Precompute embeddings (uses all-MiniLM-L6-v2, small and works on CPU)
-    python ./app/precompute.py
+    # 1. Precompute embeddings (includes documents)
+    python -m app.services.ai.ml.precompute
 
-    # 2. Train with the default model (distilgpt2 - works on CPU!)
-    python ./app/train.py --num-train-epochs 1
+    # 2. Train with the default model (includes documents)
+    python -m app.services.ai.ml.train --num-train-epochs 1
 
     # 3. Start the FastAPI server
     python -m app.app
@@ -20,29 +29,20 @@ ADVANCED OPTIONS:
 =================
 
     # Train with a specific model
-    python ./app/train.py --model-name-or-path microsoft/phi-2
+    python -m app.services.ai.ml.train --model-name-or-path microsoft/phi-2
 
     # Train for more epochs
-    python ./app/train.py --num-train-epochs 3
+    python -m app.services.ai.ml.train --num-train-epochs 3
 
-    # Train on specific file types
-    python ./app/train.py --file-types csv,json,txt,pdf
+    # Train on CSVs only (skip documents)
+    python -m app.services.ai.ml.train --no-documents
 
-    # Train on a specific file only
-    python ./app/train.py --dataset ./app/data/datasets/cloud_deployments.csv --dataset-dir
-    python ./app/train.py --dataset ./app/data/datasets/deployments.json --dataset-dir
-    python ./app/train.py --dataset ./app/data/datasets/cloud_operations_provisionning_knowledge1.txt --dataset-dir
-
-SUPPORTED FILE FORMATS:
-=======================
-    - CSV:  Tabular data with headers (converted row-by-row)
-    - JSON: Arrays of objects, nested structures, or OpenTelemetry-style data
-    - TXT:  Plain text files (chunked into paragraphs/sections)
-    - PDF:  PDF documents (page-by-page extraction)
+    # Train on a specific CSV only
+    python -m app.services.ai.ml.train --dataset app/data/datasets/data.csv --dataset-dir "" --no-documents
 
 OUTPUT:
 =======
-    app/data/models/
+    app/data/models/model/
         config.json
         tokenizer.json
         pytorch_model.bin
@@ -52,41 +52,40 @@ import argparse
 import json
 import math
 import os
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
+
+import sys
+import io
+
+# Fix Windows console encoding for emoji/unicode output
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    elif not isinstance(sys.stdout, io.TextIOWrapper) or sys.stdout.encoding != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
 import numpy as np
 import pandas as pd
 import torch
 
-from app.core.industry import Industry, get_industry_config
-
-try:
-    import PyPDF2
-    HAVE_PDF = True
-except ImportError:
-    HAVE_PDF = False
-
 # ============================================================================
-# HARDCODED MODEL CONFIGURATION
+# HARDCODED MODEL CONFIGURATION (causal LM for generation / analysis only)
 # ============================================================================
-# Choose ONE model based on your hardware:
+# This script trains a CAUSAL LM (GPT-style). It is NOT used by AI Matching.
+# Matching uses: EmbeddingService (BGE) + precompute FAISS + cross-encoder (ms-marco).
 #
-# ULTRA TINY (< 50MB) - Fastest, great for testing:
-# LLM_MODEL_NAME = "sshleifer/tiny-gpt2"                  # ~2MB, instant on CPU
-# LLM_MODEL_NAME = "roneneldan/TinyStories-1M"          # ~4MB, 1M params
-LLM_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"          # ~32MB, 8M params
-# LLM_MODEL_NAME = "Qwen/Qwen2.5-Coder-7B-Instruct"       # ~15GB VRAM
-# LLM_MODEL_NAME = "roneneldan/TinyStories-33M"         # ~130MB, 33M params
+# Choose ONE causal LM based on your hardware:
 #
-# FOR CPU / LOW VRAM (< 8GB) - Good quality:
-# LLM_MODEL_NAME = "distilgpt2"                         # ~350MB, runs on CPU
+# FOR CPU / LOW VRAM (< 8GB) - Fast local testing:
+LLM_MODEL_NAME = "distilgpt2"   # ~80M params, runs on CPU
 # FOR MEDIUM GPU (8-12GB VRAM):
-# LLM_MODEL_NAME = "microsoft/phi-2"                    # 2.7B params, ~6GB VRAM
 # LLM_MODEL_NAME = "TinyLlama/TinyLlama-1.1B-Chat-v1.0" # 1.1B params, ~3GB VRAM
-## FOR RESUMES & REASONING:
-# LLM_MODEL_NAME = "mistralai/Ministral-8B-Instruct-2410"  # ~16GB VRAM
+# LLM_MODEL_NAME = "microsoft/phi-2"                    # 2.7B params, ~6GB VRAM
+#
 # FOR HIGH-END GPU (16GB+ VRAM):
 # LLM_MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2" # 7B params, ~14GB VRAM
 # ============================================================================
@@ -117,16 +116,15 @@ class TrainConfig:
     weight_decay: float
     warmup_ratio: float
     seed: int
-    file_types: List[str]  # Supported: csv, json, txt, pdf
-    industry: Industry = Industry.CLOUD
+    limit_rows: int
+    no_documents: bool = False
 
 
-def row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
+def row_to_text(row: Dict) -> str:
     """Convert one CSV row into a single training text.
 
-    Uses the industry registry to select the appropriate system prompt.
+    For document analysis and business intelligence data, a compact key/value representation works well.
     """
-    cfg = get_industry_config(industry)
     parts: List[str] = []
     for k, v in row.items():
         if v is None:
@@ -136,181 +134,110 @@ def row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
             continue
         parts.append(f"{k}: {sv}")
 
-    return cfg["system_prompt"] + " | ".join(parts) + "\n\nAnswer:"
-
-
-def load_json_file(file_path: Path) -> List[Dict]:
-    """Load JSON file and convert to list of dictionaries for training.
-
-    Supports various JSON structures:
-    - Array of objects: [{"key": "value"}, ...]
-    - Single object with nested data
-    - OpenTelemetry-style telemetry data
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    rows = []
-
-    if isinstance(data, list):
-        # Array of objects
-        for item in data:
-            if isinstance(item, dict):
-                rows.append(item)
-            else:
-                rows.append({"content": str(item), "source": file_path.name})
-    elif isinstance(data, dict):
-        # Check for common nested structures
-        # Deployment-style: {"use_cases": [...]} or generic {"data": [...], "items": [...]}
-        nested_keys = ['use_cases', 'deployments', 'records', 'data', 'items', 'entries']
-
-        found_nested = False
-        for key in nested_keys:
-            if key in data and isinstance(data[key], list):
-                found_nested = True
-                for item in data[key]:
-                    if isinstance(item, dict):
-                        item['_category'] = key
-                        item['_source'] = file_path.name
-                        rows.append(item)
-                    else:
-                        rows.append({
-                            "content": str(item),
-                            "category": key,
-                            "source": file_path.name
-                        })
-
-        # If no nested arrays found, treat as single record
-        if not found_nested:
-            # Flatten nested dictionaries for training
-            flat_row = flatten_dict(data)
-            flat_row['_source'] = file_path.name
-            rows.append(flat_row)
-
-    return rows
-
-
-def flatten_dict(d: Dict, parent_key: str = '', sep: str = '.') -> Dict:
-    """Flatten nested dictionary for easier text conversion."""
-    items = []
-    for k, v in d.items():
-        new_key = f"{parent_key}{sep}{k}" if parent_key else k
-        if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
-        elif isinstance(v, list):
-            # Convert list to string representation
-            items.append((new_key, str(v)))
-        else:
-            items.append((new_key, v))
-    return dict(items)
-
-
-def load_txt_file(file_path: Path, chunk_size: int = 1000) -> List[Dict]:
-    """Load TXT file and chunk into training samples.
-
-    Splits text by paragraphs or fixed chunk size for training.
-    """
-    with open(file_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-
-    rows = []
-
-    # First try splitting by sections (double newlines or markdown headers)
-    sections = []
-
-    # Split by markdown-style headers
-    import re
-    header_pattern = r'\n(?=(?:SECTION|#{1,3}|[A-Z][A-Z\s]+:))'
-    parts = re.split(header_pattern, content)
-
-    for part in parts:
-        part = part.strip()
-        if len(part) > 50:  # Minimum meaningful content
-            sections.append(part)
-
-    # If no good sections found, split by paragraphs
-    if len(sections) <= 1:
-        paragraphs = content.split('\n\n')
-        sections = [p.strip() for p in paragraphs if len(p.strip()) > 50]
-
-    # If still too few sections, chunk by size
-    if len(sections) <= 1 and len(content) > chunk_size:
-        sections = []
-        for i in range(0, len(content), chunk_size):
-            chunk = content[i:i + chunk_size]
-            if chunk.strip():
-                sections.append(chunk.strip())
-
-    for i, section in enumerate(sections):
-        rows.append({
-            "content": section,
-            "source": file_path.name,
-            "section_index": i + 1,
-            "total_sections": len(sections)
-        })
-
-    return rows
-
-
-def json_row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
-    """Convert a JSON record into training text.
-
-    Uses industry registry for category prompts and fallback prefix.
-    """
-    cfg = get_industry_config(industry)
-    category = row.pop('_category', None)
-    source = row.pop('_source', None)
-
-    parts: List[str] = []
-
-    if category:
-        category_prompts = cfg.get("json_category_prompts", {})
-        prefix = category_prompts.get(category, f"{industry.value} data - {category}:")
-    else:
-        prefix = cfg["system_prompt"].rstrip() + " Use the following:"
-
-    for k, v in row.items():
-        if v is None:
-            continue
-        sv = str(v)
-        if sv.strip() == "" or sv.strip().lower() == "nan":
-            continue
-        parts.append(f"{k}: {sv}")
-
-    return f"{prefix}\n\n" + " | ".join(parts) + "\n\nSummary:"
-
-
-def txt_row_to_text(row: Dict, industry: Industry = Industry.CLOUD) -> str:
-    """Convert a TXT chunk into training text."""
-    cfg = get_industry_config(industry)
-    content = row.get('content', '')
-    source = row.get('source', 'unknown')
-    ctx_label = cfg.get("txt_context_label", industry.value)
-
+    # A simple instruction prefix encourages instruction-following behavior.
     return (
-        cfg["system_prompt"].rstrip() + " "
-        f"Based on the following {ctx_label} knowledge from {source}, provide expert guidance:\n\n"
-        f"{content}\n\n"
-        "Summary and key insights:"
+        "You are an AI assistant for document analysis and business intelligence. "
+        "Analyze the following record and provide insights.\n\n"
+        + " | ".join(parts)
+        + "\n\nAnswer:"
     )
 
 
-class MultiFormatCausalLMDataset(Dataset):
-    """Dataset that handles multiple file formats: CSV, JSON, TXT, PDF."""
+def _load_document_text(file_path: Path) -> Optional[str]:
+    """Extract plain text from a supported document file."""
+    suffix = file_path.suffix.lower()
 
+    try:
+        if suffix == '.txt' or suffix == '.md':
+            return file_path.read_text(encoding='utf-8', errors='ignore').strip()
+
+        if suffix == '.pdf':
+            try:
+                import pdfplumber
+                with pdfplumber.open(str(file_path)) as pdf:
+                    text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+                return text.strip()
+            except Exception:
+                import pypdf
+                with open(file_path, 'rb') as f:
+                    reader = pypdf.PdfReader(f)
+                    return "\n".join(p.extract_text() or "" for p in reader.pages).strip()
+
+        if suffix in ('.docx', '.doc'):
+            from docx import Document as DocxDocument
+            doc = DocxDocument(str(file_path))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip()).strip()
+
+    except Exception as e:
+        print(f"    ⚠️  Could not read {file_path.name}: {e}")
+
+    return None
+
+
+def doc_to_training_text(text: str, source_type: str, file_name: str) -> str:
+    """Wrap raw document text in an instruction-style training prompt."""
+    source_label = source_type.replace('_', ' ').title()
+    return (
+        "You are an AI assistant for document analysis and business intelligence. "
+        f"Analyze the following {source_label} and provide insights.\n\n"
+        f"Source: {source_label} - {file_name}\n\n"
+        f"{text}\n\nAnswer:"
+    )
+
+
+def load_documents_as_dataframe(data_dir: Path) -> pd.DataFrame:
+    """Load financial and business documents into a DataFrame with a 'training_text' column.
+
+    The resulting DataFrame has a single column so it can be concatenated with
+    CSV frames and processed through the same training pipeline.
+    """
+    doc_dirs = {
+        'financial_documents': data_dir / 'financial_documents',
+        'business_documents': data_dir / 'business_documents',
+    }
+
+    rows: List[Dict] = []
+
+    for dir_name, dir_path in doc_dirs.items():
+        if not dir_path.exists():
+            print(f"  ⚠️  Document directory not found: {dir_path}")
+            continue
+
+        doc_files = []
+        for ext in ['.pdf', '.docx', '.doc', '.txt', '.md']:
+            doc_files.extend(dir_path.rglob(f'*{ext}'))
+
+        if not doc_files:
+            print(f"  ⚠️  No documents in {dir_name}/")
+            continue
+
+        print(f"\n  📂 Loading {len(doc_files)} file(s) from {dir_name}/")
+        for doc_file in sorted(doc_files):
+            text = _load_document_text(doc_file)
+            if not text:
+                continue
+            rows.append({
+                'training_text': doc_to_training_text(text, dir_name, doc_file.stem),
+                'source': dir_name,
+                'file_name': doc_file.name,
+            })
+            print(f"    ✓ {doc_file.name} ({len(text)} chars)")
+
+    if rows:
+        print(f"\n  ✅ Loaded {len(rows)} documents for training")
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+class CSVCausalLMDataset(Dataset):
     def __init__(
         self,
         df: pd.DataFrame,
         tokenizer,
         max_length: int,
-        source_type: str = 'csv',  # 'csv', 'json', 'txt', 'pdf'
-        industry: Industry = Industry.CLOUD,
     ):
         self.df = df.reset_index(drop=True)
         self.tokenizer = tokenizer
         self.max_length = max_length
-        self.source_type = source_type
-        self.industry = industry
 
     def __len__(self) -> int:
         return len(self.df)
@@ -318,16 +245,12 @@ class MultiFormatCausalLMDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         row = self.df.iloc[idx].to_dict()
 
-        # Choose text conversion based on source type
-        if self.source_type == 'json':
-            text = json_row_to_text(row.copy(), industry=self.industry)
-        elif self.source_type == 'txt':
-            text = txt_row_to_text(row, industry=self.industry)
-        else:  # csv, pdf, or default
-            text = row_to_text(row, industry=self.industry)
+        # Rows from documents already carry a ready-made prompt in 'training_text'
+        if 'training_text' in row and row.get('training_text'):
+            text = str(row['training_text'])
+        else:
+            text = row_to_text(row)
 
-        # Tokenize a single training sample. We do NOT pad here; padding is handled
-        # by the DataCollator dynamically per batch.
         enc = self.tokenizer(
             text,
             truncation=True,
@@ -336,19 +259,14 @@ class MultiFormatCausalLMDataset(Dataset):
             return_tensors="pt",
         )
 
-        # Trainer expects plain tensors (not 1xT)
         item = {k: v.squeeze(0) for k, v in enc.items()}
         return item
-
-
-# Alias for backwards compatibility
-CSVCausalLMDataset = MultiFormatCausalLMDataset
 
 
 def keep_only_required_model_files(model_dir: Path) -> None:
     """Ensure the output folder contains exactly:
 
-    /models
+    /model
       config.json
       tokenizer.json
       pytorch_model.bin
@@ -396,216 +314,262 @@ def ensure_pytorch_bin_weights(model_dir: Path) -> None:
     safetensors_path.unlink()
 
 
+def _fmt_duration(seconds: float) -> str:
+    """Format elapsed seconds as a human-readable string."""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes = int(seconds // 60)
+    secs = seconds % 60
+    if minutes < 60:
+        return f"{minutes}m {secs:.0f}s"
+    hours = minutes // 60
+    mins = minutes % 60
+    return f"{hours}h {mins}m {secs:.0f}s"
+
+
+def _model_param_count(model) -> str:
+    """Return a human-readable parameter count."""
+    total = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if total >= 1e9:
+        return f"{total/1e9:.1f}B total, {trainable/1e9:.1f}B trainable"
+    if total >= 1e6:
+        return f"{total/1e6:.1f}M total, {trainable/1e6:.1f}M trainable"
+    return f"{total:,} total, {trainable:,} trainable"
+
+
+class ProgressPrinter(TrainerCallback):
+    """Prints live training metrics on every log step."""
+
+    def __init__(self, total_steps: int, train_start: float):
+        self.total_steps = total_steps
+        self.train_start = train_start
+        self.best_loss = float("inf")
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs:
+            return
+        loss = logs.get("loss")
+        lr = logs.get("learning_rate")
+        epoch = logs.get("epoch")
+        step = state.global_step
+        elapsed = time.time() - self.train_start
+
+        pct = (step / self.total_steps * 100) if self.total_steps > 0 else 0
+        parts = [f"step {step}/{self.total_steps} ({pct:.0f}%)"]
+        if epoch is not None:
+            parts.append(f"epoch={epoch:.2f}")
+        if loss is not None:
+            marker = ""
+            if loss < self.best_loss:
+                self.best_loss = loss
+                marker = " *best*"
+            parts.append(f"loss={loss:.4f}{marker}")
+        if lr is not None:
+            parts.append(f"lr={lr:.2e}")
+        parts.append(f"elapsed={_fmt_duration(elapsed)}")
+
+        if step > 0 and self.total_steps > step:
+            eta = elapsed / step * (self.total_steps - step)
+            parts.append(f"eta={_fmt_duration(eta)}")
+
+        print("  🟢 " + " | ".join(parts), flush=True)
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        print("\n  ⏳ Training loop started...", flush=True)
+
+    def on_epoch_begin(self, args, state, control, **kwargs):
+        epoch = state.epoch or 0
+        print(f"\n  📗 Epoch {int(epoch) + 1}/{int(args.num_train_epochs)} starting...", flush=True)
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        epoch = state.epoch or 0
+        elapsed = time.time() - self.train_start
+        print(
+            f"  📘 Epoch {int(epoch)}/{int(args.num_train_epochs)} complete "
+            f"| elapsed={_fmt_duration(elapsed)}",
+            flush=True,
+        )
+
+    def on_train_end(self, args, state, control, **kwargs):
+        elapsed = time.time() - self.train_start
+        print(f"\n  ✅ Training loop finished in {_fmt_duration(elapsed)}", flush=True)
+
+
 def train(cfg: TrainConfig) -> None:
-    # Set deterministic seeds for reproducibility.
+    global_start = time.time()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    print("\n" + "=" * 80)
+    print("🚀 VaLLM - LLM TRAINING")
+    print("=" * 80)
+    print(f"  📅 Started       : {now}")
+    print(f"  🧠 Model         : {cfg.model_name_or_path}")
+    print(f"  📂 Output        : {cfg.output_dir}")
+    print(f"  🎲 Seed          : {cfg.seed}")
+    print("=" * 80)
+
     set_seed(cfg.seed)
 
-    # Load dataset from multiple file formats
-    # Supported: CSV, JSON, TXT, PDF
-    print("=" * 80)
-    print("🚀 VaLLM Training")
-    print(f"🏭 Industry: {cfg.industry.value}")
-    print(f"📁 Supported formats: {', '.join(cfg.file_types)}")
-    print("=" * 80)
+    # ── STEP 1: Load dataset ────────────────────────────────────────────────
+    step_start = time.time()
+    print("\n" + "-" * 70)
+    print("📁 STEP 1/5: Loading datasets")
+    print("-" * 70)
 
     if cfg.dataset_dir is not None:
         if not cfg.dataset_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {cfg.dataset_dir}")
 
+        csv_paths = sorted(p for p in cfg.dataset_dir.glob("*.csv") if p.is_file())
+        if not csv_paths:
+            raise FileNotFoundError(f"No CSV files found in: {cfg.dataset_dir}")
+
+        primary = cfg.dataset_dir / cfg.primary_csv
+        if primary.exists():
+            csv_paths = [primary] + [p for p in csv_paths if p.resolve() != primary.resolve()]
+
+        print(f"  📂 Directory : {cfg.dataset_dir}")
+        print(f"  📊 CSV files : {len(csv_paths)}")
+        print()
+
         frames = []
-        total_files = 0
-
-        # Skip non-provisioning datasets (observability, troubleshooting)
-        def _skip_non_provisioning(path: Path) -> bool:
-            name = path.name.lower()
-            return "observability" in name or "troubleshoot" in name or "incident" in name
-
-        # Process CSV files
-        if 'csv' in cfg.file_types:
-            csv_paths = sorted(p for p in cfg.dataset_dir.glob("*.csv") if p.is_file() and not _skip_non_provisioning(p))
-            if csv_paths:
-                print(f"📊 Found {len(csv_paths)} CSV files...")
-                primary = cfg.dataset_dir / cfg.primary_csv
-                if primary.exists():
-                    csv_paths = [primary] + [p for p in csv_paths if p.resolve() != primary.resolve()]
-
-                for p in csv_paths:
-                    try:
-                        frame = pd.read_csv(p, on_bad_lines='warn')
-                        frame['_source_type'] = 'csv'
-                        frames.append(frame)
-                        total_files += 1
-                        print(f"    ✓ Loaded {len(frame)} rows from {p.name}")
-                    except Exception as e:
-                        print(f"⚠️  Warning: Could not parse CSV {p}: {e}")
-
-        # Process JSON files
-        if 'json' in cfg.file_types:
-            json_paths = sorted(p for p in cfg.dataset_dir.glob("*.json") if p.is_file() and not _skip_non_provisioning(p))
-            if json_paths:
-                print(f"📋 Found {len(json_paths)} JSON files...")
-                for p in json_paths:
-                    try:
-                        rows = load_json_file(p)
-                        if rows:
-                            frame = pd.DataFrame(rows)
-                            frame['_source_type'] = 'json'
-                            frames.append(frame)
-                            total_files += 1
-                            print(f"    ✓ Loaded {len(rows)} records from {p.name}")
-                    except Exception as e:
-                        print(f"⚠️  Warning: Could not parse JSON {p}: {e}")
-
-        # Process TXT files
-        if 'txt' in cfg.file_types:
-            txt_paths = sorted(p for p in cfg.dataset_dir.glob("*.txt") if p.is_file() and not _skip_non_provisioning(p))
-            if txt_paths:
-                print(f"📝 Found {len(txt_paths)} TXT files...")
-                for p in txt_paths:
-                    try:
-                        rows = load_txt_file(p)
-                        if rows:
-                            frame = pd.DataFrame(rows)
-                            frame['_source_type'] = 'txt'
-                            frames.append(frame)
-                            total_files += 1
-                            print(f"    ✓ Loaded {len(rows)} chunks from {p.name}")
-                    except Exception as e:
-                        print(f"⚠️  Warning: Could not parse TXT {p}: {e}")
-
-        # Process PDF files
-        if 'pdf' in cfg.file_types:
-            pdf_paths = sorted(p for p in cfg.dataset_dir.glob("*.pdf") if p.is_file() and not _skip_non_provisioning(p))
-            if pdf_paths:
-                if HAVE_PDF:
-                    print(f"📄 Found {len(pdf_paths)} PDF files...")
-                    for p in pdf_paths:
-                        try:
-                            reader = PyPDF2.PdfReader(p)
-                            rows = []
-                            for page_num, page in enumerate(reader.pages):
-                                text = page.extract_text()
-                                if text and text.strip():
-                                    rows.append({
-                                        "content": text.strip(),
-                                        "source": p.name,
-                                        "page": page_num + 1
-                                    })
-                            if rows:
-                                frame = pd.DataFrame(rows)
-                                frame['_source_type'] = 'pdf'
-                                frames.append(frame)
-                                total_files += 1
-                                print(f"    ✓ Loaded {len(rows)} pages from {p.name}")
-                        except Exception as e:
-                            print(f"⚠️  Warning: Could not read PDF {p}: {e}")
-                else:
-                    print(f"⚠️  Warning: Found {len(pdf_paths)} PDF files but PyPDF2 is not installed. Skipping.")
+        total_csv_rows = 0
+        for idx, p in enumerate(csv_paths, 1):
+            try:
+                frame = pd.read_csv(p, on_bad_lines='warn')
+                row_count = len(frame)
+                col_count = len(frame.columns)
+                total_csv_rows += row_count
+                frames.append(frame)
+                is_primary = " (primary)" if p.name == cfg.primary_csv else ""
+                print(f"  [{idx}/{len(csv_paths)}] ✓ {p.name}{is_primary}")
+                print(f"           {row_count:,} rows x {col_count} columns")
+            except Exception as e:
+                print(f"  [{idx}/{len(csv_paths)}] ⚠️  {p.name}: {e}")
+                continue
 
         if not frames:
-            raise FileNotFoundError(f"No valid data files found in: {cfg.dataset_dir}")
+            raise FileNotFoundError(f"No valid CSV files could be parsed in: {cfg.dataset_dir}")
 
-        print(f"\n✅ Loaded {total_files} files total")
         df = pd.concat(frames, ignore_index=True)
         dataset_label = str(cfg.dataset_dir)
+        print(f"\n  📊 CSV subtotal: {total_csv_rows:,} rows from {len(frames)} file(s)")
     else:
-        # Single file mode
         if not cfg.dataset_path.exists():
             raise FileNotFoundError(f"Dataset not found: {cfg.dataset_path}")
-
-        suffix = cfg.dataset_path.suffix.lower()
-        print("🧾 Single-file mode")
-        print(f"   File: {cfg.dataset_path.name}")
-        print(f"   Type: {suffix.lstrip('.')}")
-        if suffix == '.csv':
-            df = pd.read_csv(cfg.dataset_path, on_bad_lines='warn')
-            df['_source_type'] = 'csv'
-        elif suffix == '.json':
-            rows = load_json_file(cfg.dataset_path)
-            df = pd.DataFrame(rows)
-            df['_source_type'] = 'json'
-        elif suffix == '.txt':
-            rows = load_txt_file(cfg.dataset_path)
-            df = pd.DataFrame(rows)
-            df['_source_type'] = 'txt'
-        elif suffix == '.pdf':
-            if not HAVE_PDF:
-                raise ImportError("PyPDF2 is required for PDF files. Install with: pip install PyPDF2")
-            reader = PyPDF2.PdfReader(cfg.dataset_path)
-            rows = []
-            for page_num, page in enumerate(reader.pages):
-                text = page.extract_text()
-                if text and text.strip():
-                    rows.append({
-                        "content": text.strip(),
-                        "source": cfg.dataset_path.name,
-                        "page": page_num + 1
-                    })
-            df = pd.DataFrame(rows)
-            df['_source_type'] = 'pdf'
-            print(f"   Pages extracted: {len(rows)}")
-        else:
-            raise ValueError(f"Unsupported file format: {suffix}")
-
+        print(f"  📄 Single file: {cfg.dataset_path}")
+        df = pd.read_csv(cfg.dataset_path, on_bad_lines='warn')
+        print(f"  ✓ Loaded {len(df):,} rows x {len(df.columns)} columns")
         dataset_label = str(cfg.dataset_path)
 
     if len(df) == 0:
         raise ValueError(f"Dataset is empty: {dataset_label}")
 
-    print(f"📈 Total training samples: {len(df)}")
-    if "_source_type" in df.columns:
-        counts = df["_source_type"].value_counts().to_dict()
-        counts_str = ", ".join(f"{k}={v}" for k, v in counts.items())
-        print(f"📌 Sample distribution: {counts_str}")
+    step_elapsed = time.time() - step_start
+    print(f"  ⏱️  CSV loading completed in {_fmt_duration(step_elapsed)}")
 
-    # Load a HuggingFace causal language model + tokenizer for text generation.
-    # Default is Mistral 7B Instruct; swap to a smaller model (e.g. distilgpt2)
-    # if you want a fast CPU-only smoke test.
-    print(f"🧠 Model: {cfg.model_name_or_path}")
-    print(f"📦 Output: {cfg.output_dir}")
+    # ── STEP 1b: Load documents (financial, business) ──────────────────────
+    if not cfg.no_documents:
+        doc_start = time.time()
+        doc_data_dir = cfg.dataset_dir if cfg.dataset_dir else cfg.dataset_path.parent
+        print(f"\n  📁 Loading documents from {doc_data_dir}...")
+        doc_df = load_documents_as_dataframe(doc_data_dir)
+        if len(doc_df) > 0:
+            df = pd.concat([df, doc_df], ignore_index=True)
+            print(f"\n  📊 Combined dataset: {len(df):,} rows (CSVs + {len(doc_df)} documents)")
+        else:
+            print("  ⚠️  No documents loaded; training on CSVs only")
+        doc_elapsed = time.time() - doc_start
+        print(f"  ⏱️  Document loading completed in {_fmt_duration(doc_elapsed)}")
+    else:
+        print("\n  ⏭️  Skipping document loading (--no-documents)")
+
+    if cfg.limit_rows and cfg.limit_rows > 0:
+        df = df.head(cfg.limit_rows).reset_index(drop=True)
+        print(f"  🔒 Limited to first {cfg.limit_rows} rows (--limit-rows)")
+
+    # ── STEP 2: Load model & tokenizer ──────────────────────────────────────
+    step_start = time.time()
+    print("\n" + "-" * 70)
+    print("🧠 STEP 2/5: Loading model & tokenizer")
+    print("-" * 70)
+    print(f"  📦 Model     : {cfg.model_name_or_path}")
+    print(f"  ⏳ Downloading / loading from cache...", flush=True)
+
     tokenizer = AutoTokenizer.from_pretrained(cfg.model_name_or_path, use_fast=True)
     model = AutoModelForCausalLM.from_pretrained(cfg.model_name_or_path)
 
-    # Many GPT-like tokenizers don't define pad_token by default.
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         model.config.pad_token_id = tokenizer.eos_token_id
 
-    # Wrap the CSV as a Dataset that yields tokenized examples.
-    dataset = CSVCausalLMDataset(df=df, tokenizer=tokenizer, max_length=cfg.text_max_length, industry=cfg.industry)
+    step_elapsed = time.time() - step_start
+    print(f"  ✅ Model loaded in {_fmt_duration(step_elapsed)}")
+    print(f"  🔢 Parameters: {_model_param_count(model)}")
+    print(f"  📝 Vocab size: {tokenizer.vocab_size:,}")
+    print(f"  📏 Max length: {cfg.text_max_length}")
 
-    # Standard causal LM collator (creates `labels` from `input_ids` for next-token prediction).
+    # ── STEP 3: Prepare dataset ─────────────────────────────────────────────
+    step_start = time.time()
+    print("\n" + "-" * 70)
+    print("📝 STEP 3/5: Preparing tokenized dataset")
+    print("-" * 70)
+
+    dataset = CSVCausalLMDataset(df=df, tokenizer=tokenizer, max_length=cfg.text_max_length)
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+    step_elapsed = time.time() - step_start
+    print(f"  ✅ Dataset ready: {len(dataset):,} samples")
+    print(f"  ⏱️  Prepared in {_fmt_duration(step_elapsed)}")
+
+    # ── STEP 4: Configure & run training ────────────────────────────────────
+    print("\n" + "-" * 70)
+    print("⚙️  STEP 4/5: Training")
+    print("-" * 70)
 
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use GPU when available; pick bf16/fp16 automatically.
     use_cuda = torch.cuda.is_available()
     bf16 = bool(use_cuda and torch.cuda.is_bf16_supported())
     fp16 = bool(use_cuda and not bf16)
 
-    device_count = torch.cuda.device_count() if use_cuda else 1
-    steps_per_epoch = math.ceil(len(dataset) / (cfg.per_device_train_batch_size * device_count))
-    effective_steps = max(1, math.ceil(steps_per_epoch / cfg.gradient_accumulation_steps))
-    log_every = max(1, effective_steps // 10)
+    device_label = "CPU"
+    if use_cuda:
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        device_label = f"CUDA - {gpu_name} ({gpu_mem:.1f} GB)"
 
-    print("⚙️  Training config")
-    print(f"   Samples: {len(dataset)}")
-    print(f"   Batch size/device: {cfg.per_device_train_batch_size}")
-    print(f"   Gradient accumulation: {cfg.gradient_accumulation_steps}")
-    print(f"   Epochs: {cfg.num_train_epochs}")
-    print(f"   Logging steps: {log_every}")
-    print(f"   Device: {'cuda' if use_cuda else 'cpu'} ({device_count} device(s))")
+    device_count = torch.cuda.device_count() if use_cuda else 1
+    effective_batch = cfg.per_device_train_batch_size * cfg.gradient_accumulation_steps * device_count
+    steps_per_epoch = math.ceil(len(dataset) / (cfg.per_device_train_batch_size * device_count))
+    total_opt_steps = max(1, math.ceil(steps_per_epoch / cfg.gradient_accumulation_steps))
+    total_steps = int(total_opt_steps * cfg.num_train_epochs)
+    log_every = max(1, total_opt_steps // 10)
+
+    print(f"  💻 Device              : {device_label}")
+    print(f"     Precision           : {'bf16' if bf16 else 'fp16' if fp16 else 'fp32'}")
+    print(f"     Device count        : {device_count}")
+    print(f"  📊 Training samples    : {len(dataset):,}")
+    print(f"     Batch size/device   : {cfg.per_device_train_batch_size}")
+    print(f"     Gradient accum      : {cfg.gradient_accumulation_steps}")
+    print(f"     Effective batch     : {effective_batch}")
+    print(f"  🔄 Epochs              : {cfg.num_train_epochs}")
+    print(f"     Steps/epoch         : ~{steps_per_epoch:,}")
+    print(f"     Optimizer steps     : ~{total_steps:,}")
+    print(f"     Log every           : {log_every} steps")
+    print(f"  📈 Learning rate       : {cfg.learning_rate:.1e}")
+    print(f"     Weight decay        : {cfg.weight_decay}")
+    print(f"     Warmup ratio        : {cfg.warmup_ratio}")
 
     training_args = TrainingArguments(
         output_dir=str(cfg.output_dir / "_checkpoints"),
-        overwrite_output_dir=True,
         per_device_train_batch_size=cfg.per_device_train_batch_size,
         gradient_accumulation_steps=cfg.gradient_accumulation_steps,
         num_train_epochs=cfg.num_train_epochs,
         learning_rate=cfg.learning_rate,
         weight_decay=cfg.weight_decay,
-        warmup_ratio=cfg.warmup_ratio,
+        warmup_steps=max(1, int(total_steps * cfg.warmup_ratio)),
         logging_strategy="steps",
         logging_steps=log_every,
         logging_first_step=True,
@@ -618,49 +582,40 @@ def train(cfg: TrainConfig) -> None:
         report_to=[],
     )
 
-    class ProgressPrinter(TrainerCallback):
-        def on_log(self, args, state, control, logs=None, **kwargs):
-            if not logs:
-                return
-            loss = logs.get("loss")
-            lr = logs.get("learning_rate")
-            epoch = logs.get("epoch")
-            step = state.global_step
-            parts = [f"step={step}"]
-            if epoch is not None:
-                parts.append(f"epoch={epoch:.2f}")
-            if loss is not None:
-                parts.append(f"loss={loss:.4f}")
-            if lr is not None:
-                parts.append(f"lr={lr:.2e}")
-            print("🟢 " + " | ".join(parts))
+    train_start = time.time()
+    progress_cb = ProgressPrinter(total_steps=total_steps, train_start=train_start)
 
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
         data_collator=data_collator,
-        tokenizer=tokenizer,
-        callbacks=[ProgressPrinter()],
+        processing_class=tokenizer,
+        callbacks=[progress_cb],
     )
 
     trainer.train()
+    train_elapsed = time.time() - train_start
 
-    # Save in HuggingFace format into ./model.
-    # This is what produces:
-    # - config.json
-    # - model weights (pytorch_model.bin or model.safetensors depending on environment)
+    # ── STEP 5: Save model ──────────────────────────────────────────────────
+    step_start = time.time()
+    print("\n" + "-" * 70)
+    print("💾 STEP 5/5: Saving model")
+    print("-" * 70)
+    print(f"  📂 Output directory: {cfg.output_dir}")
+
     trainer.model.save_pretrained(cfg.output_dir)
-    # This writes tokenizer.json (plus possible extra tokenizer files).
+    print("  ✓ Model weights saved")
+
     tokenizer.save_pretrained(cfg.output_dir)
+    print("  ✓ Tokenizer saved")
 
-    # Ensure weights file is exactly pytorch_model.bin.
     ensure_pytorch_bin_weights(cfg.output_dir)
+    print("  ✓ Weights converted to pytorch_model.bin")
 
-    # Enforce output structure exactly as requested
     keep_only_required_model_files(cfg.output_dir)
+    print("  ✓ Cleaned up extra files")
 
-    # Quick sanity check
     required_paths = [
         cfg.output_dir / "config.json",
         cfg.output_dir / "tokenizer.json",
@@ -670,40 +625,72 @@ def train(cfg: TrainConfig) -> None:
     if missing:
         raise RuntimeError(f"Model export incomplete; missing files: {missing}")
 
+    save_elapsed = time.time() - step_start
+    print(f"  ⏱️  Model saved in {_fmt_duration(save_elapsed)}")
+
+    # ── Final files listing ─────────────────────────────────────────────────
+    print("\n  📂 Output files:")
+    for p in sorted(cfg.output_dir.iterdir()):
+        if p.is_file():
+            size_mb = p.stat().st_size / (1024 * 1024)
+            print(f"     {p.name:30s} {size_mb:>8.2f} MB")
+
+    # ── SUMMARY ─────────────────────────────────────────────────────────────
+    total_elapsed = time.time() - global_start
+    print("\n" + "=" * 80)
+    print("🎉 TRAINING COMPLETE!")
+    print("=" * 80)
+    print(f"""
+    📊 Summary
+    {'─' * 45}
+    🧠 Model            : {cfg.model_name_or_path}
+    🔢 Parameters       : {_model_param_count(model)}
+    📝 Training samples : {len(dataset):,}
+    🔄 Epochs           : {cfg.num_train_epochs}
+    📉 Final best loss  : {progress_cb.best_loss:.4f}
+    💻 Device           : {device_label}
+    ⏱️  Training time   : {_fmt_duration(train_elapsed)}
+    ⏱️  Total time      : {_fmt_duration(total_elapsed)}
+
+    📂 Output
+    {'─' * 45}
+    📁 Directory        : {cfg.output_dir}
+    📄 config.json      : ✅
+    📄 tokenizer.json   : ✅
+    📄 pytorch_model.bin : ✅
+
+    ✅ Ready! Run 'python -m app.app' to start the server.
+    """)
+
+
+def _app_dir() -> Path:
+    """App directory (app/data/...). train.py is in app/services/ai/ml/."""
+    return Path(__file__).resolve().parents[3]
+
 
 def parse_args() -> TrainConfig:
-    parser = argparse.ArgumentParser(
-        description="Fine-tune a causal LM on multi-format data (CSV, JSON, TXT, PDF)"
-    )
+    _app = _app_dir()
+    parser = argparse.ArgumentParser(description="Fine-tune a causal LM; data from app/data/datasets, output to app/data/models/model")
 
     parser.add_argument(
         "--dataset",
         type=str,
-        default=str(Path("app") / "data" / "datasets" / "cloud_deployments.csv"),
-        help="Path to training file (CSV, JSON, TXT, or PDF)",
+        default=str(_app / "data" / "datasets" / "documents.csv"),
+        help="Path to training CSV",
     )
     parser.add_argument(
         "--dataset-dir",
         type=str,
         nargs="?",
         const="",
-        default=str(Path("app") / "data" / "datasets"),
-        help=(
-            "If set, train on all supported files in this folder (recommended). "
-            "Pass no value to disable and train only on --dataset."
-        ),
+        default=str(_app / "data" / "datasets"),
+        help="If set, train on all CSVs in this folder (recommended)",
     )
     parser.add_argument(
         "--primary-csv",
         type=str,
-        default="cloud_deployments.csv",
+        default="documents.csv",
         help="CSV to prioritize first when training on --dataset-dir",
-    )
-    parser.add_argument(
-        "--file-types",
-        type=str,
-        default="csv,json,txt,pdf",
-        help="Comma-separated list of file types to include (default: csv,json,txt,pdf)",
     )
     parser.add_argument(
         "--model-name-or-path",
@@ -714,10 +701,10 @@ def parse_args() -> TrainConfig:
     parser.add_argument(
         "--output-dir",
         type=str,
-        default=str(Path("app") / "data" / "models"),
-        help="Output folder for trained model weights",
+        default=str(_app / "data" / "models" / "model"),
+        help="Output folder (app/data/models/model)",
     )
-    parser.add_argument("--text-max-length", type=int, default=512)
+    parser.add_argument("--text-max-length", type=int, default=256)
     parser.add_argument("--per-device-train-batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
     parser.add_argument("--num-train-epochs", type=float, default=1.0)
@@ -726,49 +713,26 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--industry",
-        type=str,
-        default=None,
-        choices=[i.value for i in Industry],
-        help="Target industry (overrides ACTIVE_INDUSTRY env). Default: cloud",
+        "--limit-rows",
+        type=int,
+        default=0,
+        help="If > 0, only use the first N rows from the loaded dataset (useful for quick tests)",
+    )
+    parser.add_argument(
+        "--no-documents",
+        action="store_true",
+        default=False,
+        help="Skip loading documents (train on CSVs only)",
     )
 
     args = parser.parse_args()
 
-    # Parse file types
-    file_types = [ft.strip().lower() for ft in args.file_types.split(',')]
-    valid_types = {'csv', 'json', 'txt', 'pdf'}
-    invalid = set(file_types) - valid_types
-    if invalid:
-        parser.error(f"Invalid file types: {invalid}. Valid types: {valid_types}")
-
-    # Resolve industry
-    if args.industry:
-        industry = Industry(args.industry)
-    else:
-        try:
-            from app.core.settings import settings
-            industry = settings.active_industry
-        except Exception:
-            industry = Industry.CLOUD
-
-    # Default dataset-dir and output-dir to industry-specific paths when unchanged
-    dataset_dir_str = args.dataset_dir
-    output_dir_str = args.output_dir
-    default_dataset_dir = str(Path("app") / "data" / "datasets")
-    default_output_dir = str(Path("app") / "data" / "models")
-
-    if dataset_dir_str == default_dataset_dir:
-        dataset_dir_str = str(Path("app") / "data" / "datasets" / industry.value)
-    if output_dir_str == default_output_dir:
-        output_dir_str = str(Path("app") / "data" / "models" / industry.value)
-
     return TrainConfig(
         dataset_path=Path(args.dataset),
-        dataset_dir=Path(dataset_dir_str) if dataset_dir_str else None,
+        dataset_dir=Path(args.dataset_dir) if args.dataset_dir else None,
         primary_csv=args.primary_csv,
         model_name_or_path=args.model_name_or_path,
-        output_dir=Path(output_dir_str),
+        output_dir=Path(args.output_dir),
         text_max_length=args.text_max_length,
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -777,8 +741,8 @@ def parse_args() -> TrainConfig:
         weight_decay=args.weight_decay,
         warmup_ratio=args.warmup_ratio,
         seed=args.seed,
-        file_types=file_types,
-        industry=industry,
+        limit_rows=args.limit_rows,
+        no_documents=args.no_documents,
     )
 
 
@@ -789,3 +753,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

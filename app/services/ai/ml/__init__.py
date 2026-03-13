@@ -1,29 +1,54 @@
 """
-VaLLM ML Services - Machine Learning and AI components
+VaLLM Specialist Model - ML / LLM Services.
+
+Author: Joel Otepa Wembo
+https://joelwembo.com
+
+Package init: exposes direct OpenAI, embeddings, explainability, vector store,
+ingestion, and fraud detection services for document analysis and business intelligence.
 """
 
-__version__ = "1.0.0"
+try:
+    from .direct_openai import direct_openai
+except ImportError:
+    direct_openai = None
 
-# Core ML components
-from .embeddings import VectorStore, embedding_service
-from .reasoning import ReasoningEngine
-from .cache import TTLCache, get_embedding_cache, get_search_cache, get_all_cache_stats
+try:
+    from .embedding import embedding_service
+except ImportError:
+    embedding_service = None
 
-# Routes
-from .routes import router, router_v2, router_v3
+try:
+    from .vector_adapter import vector_store
+except ImportError:
+    vector_store = None
+
+try:
+    from .explainability import ExplainabilityService, explainability_service
+except ImportError:
+    ExplainabilityService = None
+    explainability_service = None
+
+try:
+    from .ingestion import IngestionService, ingestion_service
+except ImportError:
+    IngestionService = None
+    ingestion_service = None
+
+try:
+    from .fraud_detection import FraudDetectionService, fraud_detection_service
+except ImportError:
+    FraudDetectionService = None
+    fraud_detection_service = None
 
 __all__ = [
-    # Core
-    "VectorStore",
+    "direct_openai",
     "embedding_service",
-    "ReasoningEngine",
-    # Cache
-    "TTLCache",
-    "get_embedding_cache",
-    "get_search_cache",
-    "get_all_cache_stats",
-    # Routes
-    "router",
-    "router_v2",
-    "router_v3",
+    "vector_store",
+    "ExplainabilityService",
+    "explainability_service",
+    "IngestionService",
+    "ingestion_service",
+    "FraudDetectionService",
+    "fraud_detection_service",
 ]

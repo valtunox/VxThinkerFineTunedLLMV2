@@ -1,6 +1,7 @@
 """
-FastAPI routes for Celery cloud operations.
+FastAPI routes for Celery task queue (document processing, verification, and business analytics).
 """
+import asyncio
 from fastapi import APIRouter, Body, Depends
 from .celery_service import CeleryService
 
@@ -9,6 +10,64 @@ router = APIRouter()
 
 async def get_celery_service() -> CeleryService:
     return CeleryService()
+
+
+@router.get(
+    "/celery/health",
+    summary="Celery Worker Health Check",
+    description="Check if Celery workers are reachable via the broker (Redis). Returns worker status and count.",
+    responses={
+        200: {"description": "Health check result (always 200, status field indicates health)"},
+    },
+)
+async def celery_health():
+    """Ping Celery workers via the broker and return their availability."""
+    try:
+        from app.core.celery_app import get_celery_app, CELERY_AVAILABLE
+        if not CELERY_AVAILABLE:
+            return {
+                "status": "unavailable",
+                "workers": 0,
+                "worker_names": [],
+                "detail": "Celery package not installed",
+            }
+
+        app = get_celery_app()
+        if app is None:
+            return {
+                "status": "unavailable",
+                "workers": 0,
+                "worker_names": [],
+                "detail": "Celery app not configured",
+            }
+
+        ping_result = await asyncio.to_thread(
+            app.control.ping, timeout=2.0
+        )
+
+        if ping_result:
+            worker_names = [
+                list(entry.keys())[0] for entry in ping_result if isinstance(entry, dict)
+            ]
+            return {
+                "status": "connected",
+                "workers": len(worker_names),
+                "worker_names": worker_names,
+            }
+        else:
+            return {
+                "status": "disconnected",
+                "workers": 0,
+                "worker_names": [],
+                "detail": "No workers responded to ping",
+            }
+    except Exception as e:
+        return {
+            "status": "disconnected",
+            "workers": 0,
+            "worker_names": [],
+            "detail": str(e)[:200],
+        }
 
 
 @router.post(

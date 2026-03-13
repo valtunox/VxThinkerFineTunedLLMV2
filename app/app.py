@@ -1,36 +1,142 @@
 """
-VaLLM - Vector-based Local LLM for Cloud Operations
-=====================================================
-FastAPI application with embeddings, FAISS, and chain-of-thoughts reasoning.
+VaLLM Specialist Model - Multi-Purpose AI for Document Intelligence & Business Analytics
+==========================================================================================
 
-A sovereign, private AI reasoning engine for cloud infrastructure operations.
-Unlike generic LLMs, VaLLM is grounded in your actual production data (logs,
-resources, configurations) and provides precise DevOps intelligence.
+Author: Joel Otepa Wembo
+https://joelwembo.com
+
+FastAPI application with embeddings, FAISS vector search, multi-LLM routing,
+XGBoost scoring, SHAP explainability, and multi-agent orchestration.
+
+A sovereign, private AI specialist model for document verification, financial
+analysis, billing/invoice processing, accounting automation, and business
+recommendations. VaLLM is grounded in your organization's actual documents,
+transactions, and business data to deliver precise, domain-specific intelligence.
+
+SUPPORTED USE CASES:
+====================
+
+    Document Verification & Analysis:
+    ---------------------------------
+    Q: "Is this invoice authentic? Check for signs of tampering."
+    A: VaLLM runs OCR extraction, cross-references entity data (vendor, amounts,
+       dates), checks structural consistency, and returns a confidence score with
+       risk flags (e.g., mismatched totals, altered dates, unknown vendor).
+
+    Q: "Extract all line items, tax amounts, and payment terms from this PDF invoice."
+    A: The document parser extracts structured fields (amounts, dates, entities)
+       and classifies the document type (invoice, receipt, contract, statement).
+
+    Q: "Compare these two contracts and highlight the differences."
+    A: The document matching service computes content similarity, metadata match,
+       structural similarity, and entity overlap to identify changes.
+
+    Q: "Find duplicate or near-duplicate invoices in our system."
+    A: The deduplication pipeline uses content hashing and vector similarity to
+       flag potential duplicates with configurable similarity thresholds.
+
+    Financial Analysis & Accounting:
+    --------------------------------
+    Q: "Reconcile this bank statement against our accounts payable ledger."
+    A: VaLLM matches transactions by amount, date proximity, and reference number,
+       flagging unmatched items and discrepancies for review.
+
+    Q: "Categorize these 500 transactions into expense categories."
+    A: The entity scoring model classifies each transaction by type (operational,
+       capital, payroll, etc.) with confidence scores and SHAP explanations.
+
+    Q: "What's our spending trend for Q1 vs Q2, and forecast Q3?"
+    A: The financial prediction model analyzes historical patterns, seasonal trends,
+       and market conditions to generate forecasts with confidence intervals.
+
+    Q: "Flag any transactions above $10,000 that lack proper documentation."
+    A: Cross-references transaction records against the document store, identifying
+       high-value items missing supporting invoices or approvals.
+
+    Billing & Invoice Processing:
+    -----------------------------
+    Q: "Process this batch of 200 scanned receipts and extract totals."
+    A: The OCR pipeline (pdfplumber -> pypdf -> Tesseract fallback) processes each
+       document, extracts amounts/dates/vendors, and stores structured records.
+
+    Q: "Which invoices are past due and what's the total outstanding?"
+    A: Queries the transaction store filtering by due_date and payment status,
+       aggregating amounts by vendor, age bracket, and priority.
+
+    Q: "Match incoming payments to open invoices automatically."
+    A: Uses amount matching, reference number lookup, and fuzzy vendor matching
+       to auto-reconcile payments against outstanding invoices.
+
+    Business Recommendations:
+    -------------------------
+    Q: "Based on our spending data, where can we reduce costs?"
+    A: The recommendation agent analyzes spending patterns, vendor concentration,
+       and category trends to suggest optimization opportunities ranked by
+       impact score and confidence level.
+
+    Q: "Which vendors should we consolidate for better pricing?"
+    A: Clusters vendor data by category, analyzes spend distribution, and
+       identifies consolidation opportunities with estimated savings.
+
+    Q: "What compliance risks exist in our current document workflow?"
+    A: Scans verification records for missing approvals, expired documents,
+       incomplete audit trails, and policy violations.
+
+    Entity Scoring & Risk Assessment:
+    ----------------------------------
+    Q: "Score this new vendor application for risk level."
+    A: The XGBoost scoring model evaluates industry, company size, risk indicators,
+       and region, returning a score with SHAP feature importance breakdown.
+
+    Q: "Rate the creditworthiness of this business entity."
+    A: Combines financial statement analysis, transaction history, and industry
+       benchmarks into a composite score with explainable contributing factors.
+
+    Semantic Search & Retrieval:
+    ----------------------------
+    Q: "Find all documents related to 'tax withholding compliance 2025'."
+    A: Hybrid BM25 + dense vector search with cross-encoder reranking returns
+       the most relevant documents from the FAISS index.
+
+    Q: "Search for similar contracts to this lease agreement."
+    A: Encodes the query document and performs nearest-neighbor search across
+       the vector store, returning matches ranked by cosine similarity.
+
+    Multi-Industry Support:
+    -----------------------
+    Q: "Configure VaLLM for healthcare document processing."
+    A: The multi-industry engine adapts entity extraction, classification rules,
+       and compliance checks for HEALTHCARE, FINANCE, CLOUD, AUTOMATION, or
+       CUSTOMER_SERVICE domains.
 
 ARCHITECTURE:
 =============
-    ┌─────────────────────────────────────────────────────────────┐
-    │                      VaLLM CORE                             │
-    ├─────────────────────────────────────────────────────────────┤
-    │  Embeddings (sentence-transformers/all-MiniLM-L6-v2)        │
-    │  Vector Store (FAISS) ─────► Semantic Search                │
-    │  LLM Model (distilgpt2/Mistral) ─────► Text Generation      │
-    │  Reasoning Engine ─────► Chain-of-Thought Analysis          │
-    │  NLP (spaCy) ─────► Entity Extraction (optional)            │
-    └─────────────────────────────────────────────────────────────┘
+    +-------------------------------------------------------------+
+    |                    VaLLM SPECIALIST MODEL                    |
+    +-------------------------------------------------------------+
+    |  Embeddings (BGE / all-MiniLM-L6-v2)                        |
+    |  Vector Store (FAISS) ---------> Semantic Search             |
+    |  Multi-LLM Router (OpenAI/Anthropic/Google/Ollama/...)      |
+    |  XGBoost Scoring ---------> Entity & Risk Assessment        |
+    |  SHAP Explainability ---------> Feature Importance           |
+    |  Document OCR (pdfplumber/pypdf/Tesseract)                  |
+    |  Multi-Agent Orchestration (LangChain/LangGraph)            |
+    +-------------------------------------------------------------+
 
 MEMORY & CONTEXT:
 =================
     - Session Memory: In-memory conversation history per request
     - Vector Memory: FAISS index for semantic retrieval (long-term)
     - Context Window: Managed by LLM token limits
-    - For multi-tenant: Add PostgreSQL for persistent sessions
+    - PostgreSQL: Persistent multi-tenant document & transaction storage
 
 DATA FLOW:
 ==========
-    1. precompute.py → Embeds CSVs → FAISS index (vectorstore/)
-    2. train.py → Fine-tunes LLM on CSVs → Model weights (model/)
-    3. app.py → Loads both → Serves API endpoints
+    1. precompute.py -> Embeds documents -> FAISS index (vectorstore/)
+    2. train.py -> Fine-tunes LLM on domain data -> Model weights (model/)
+    3. app.py -> Loads both -> Serves API endpoints
+    4. OCR pipeline -> Extracts text from PDFs/images -> Structured records
+    5. Scoring models -> XGBoost predictions with SHAP explanations
 
 USAGE:
 ======
@@ -46,8 +152,6 @@ ENVIRONMENT VARIABLES:
     USE_CUDA=true               (default: false) - Use GPU for inference
     VALLM_CACHE_EMBEDDINGS=true (default: true)  - Cache query embeddings (L1, TTL 1h)
     VALLM_CACHE_SEARCH=true     (default: true)  - Cache search results (L2, TTL 30m)
-    VALLM_CACHE_EMBEDDINGS_MAXSIZE (default: 2000)
-    VALLM_CACHE_SEARCH_MAXSIZE     (default: 1000)
 
 API ENDPOINTS:
 ==============
@@ -56,7 +160,7 @@ API ENDPOINTS:
         GET  /logs                - View recent logs
         POST /search              - Vector similarity search
         POST /generate            - LLM text generation
-    
+
     V1 (RAG + Reasoning):
         POST /api/models/v1/query     - RAG query with reasoning
         POST /api/models/v1/developer - Developer assistance
@@ -64,22 +168,23 @@ API ENDPOINTS:
 
     V2 (NLP + Document Analysis):
         POST /api/models/v2/query     - NLP-enhanced query
-        POST /api/models/v2/extract   - Entity extraction
-        POST /api/models/v2/upload    - Document/image upload
+        POST /api/models/v2/extract   - Entity extraction from documents
+        POST /api/models/v2/upload    - Document/image upload & OCR
         GET  /api/models/v2/status    - NLP capabilities status
 
-    V3 (Cloud/DevOps Incident Patterns):
-        POST /api/models/v3/query     - Unusual incident patterns + metrics
+    V3 (Analytics & Predictions):
+        POST /api/models/v3/query     - Financial analytics & pattern detection
 
-    Cloud provisioning (intent + Golang payload for agent):
-        POST /api/cloud/provision-intent - Intent + payload for provisioning; query_type for incidents/cost/billing/security/recommendations
+    Monitoring:
+        GET  /metrics             - Prometheus metrics
+        GET  /monitoring/health   - Detailed health check
 
 DEPLOYMENT:
 ===========
     Single Node:  python -m app.app
-    Production:   uvicorn app.app:app --host 0.0.0.0 --port 8745 --workers 4
-    Docker:       docker run -p 8745:8745 vallm:latest
-    Kubernetes:   See README.md for deployment manifests
+    Production:   uvicorn app.app:app --host 0.0.0.0 --port 8746 --workers 4
+    Docker:       docker run -p 8746:8746 vallm:latest
+    Kubernetes:   See deployment/ for manifests
 """
 
 import os
@@ -299,20 +404,32 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 # Support both direct execution and module execution
+# VectorStore and ReasoningEngine are loaded conditionally — the app
+# functions in degraded mode when the underlying modules are absent.
+VectorStore = None
+ReasoningEngine = None
+
 try:
-    from .services.ai.ml.embeddings import VectorStore
-    from .services.ai.ml.reasoning import ReasoningEngine
-    from .services.ai.ml.routes import router, router_v2, router_v3
-    from .services.ai.ml.cloud_routes import router as cloud_router
-except ImportError as e:
-    # Only fall back when running without a package context.
-    if "attempted relative import with no known parent package" in str(e):
-        from services.ai.ml.embeddings import VectorStore
-        from services.ai.ml.reasoning import ReasoningEngine
-        from services.ai.ml.routes import router, router_v2, router_v3
-        from services.ai.ml.cloud_routes import router as cloud_router
-    else:
-        raise
+    try:
+        from .services.ai.ml.embedding import EmbeddingService
+    except ImportError as _ie:
+        if "attempted relative import with no known parent package" in str(_ie):
+            from services.ai.ml.embedding import EmbeddingService
+        else:
+            raise
+except ImportError:
+    EmbeddingService = None
+
+try:
+    try:
+        from .services.ai.ml.search import SearchService
+    except ImportError as _ie:
+        if "attempted relative import with no known parent package" in str(_ie):
+            from services.ai.ml.search import SearchService
+        else:
+            raise
+except ImportError:
+    SearchService = None
 
 # Global instances
 vector_store = None
@@ -507,7 +624,7 @@ def display_matrix_banner():
     │          V E C T O R - A U G M E N T E D   L O C A L   L A N G U A G E        │
     │                              M O D E L                                        │
     │                                                                              │
-    │           Cloud Operations  •  DevOps Intelligence  •  Fine Funed Model           │
+    │       Document Intelligence  •  Financial Analysis  •  Business AI         │
     │                                                                              │
     └──────────────────────────────────────────────────────────────────────────────┘
 \033[0m"""
@@ -598,7 +715,7 @@ def display_system_info(
         print("    ├─────────────────────────────────────────────────────────┤")
         print("    │  GET  /health          POST /api/models/v1/query (RAG)  │")
         print("    │  GET  /logs            POST /api/models/v2/query (NLP)  │")
-        print("    │  POST /api/models/v3/query (Incident patterns)           │")
+        print("    │  POST /api/models/v3/query (Analytics & predictions)    │")
         print("    └─────────────────────────────────────────────────────────┘")
         print("\033[0m")
 
@@ -674,17 +791,25 @@ async def lifespan(app: FastAPI):
         if (vectorstore_missing or model_missing) and csv_count == 0:
             matrix_print("    ⚠️  No dataset files in app/data/datasets/ — add CSV/text to enable auto-build", "warning")
 
-        # Step 3: Vector store
+        # Step 3: Vector store (optional — depends on embedding service availability)
         display_loading_bar("Loading vector store", 3, 7)
-        vector_store = VectorStore(data_dir=str(data_dir))
-        await vector_store.initialize()
-        matrix_print("    ✓ Vector store initialized", "success")
+        if VectorStore is not None:
+            vector_store = VectorStore(data_dir=str(data_dir))
+            await vector_store.initialize()
+            matrix_print("    ✓ Vector store initialized", "success")
+        elif EmbeddingService is not None:
+            matrix_print("    ✓ Embedding service available (FAISS loaded separately)", "success")
+        else:
+            matrix_print("    ⚠️  Vector store / embedding service not available", "warning")
 
-        # Step 4: Reasoning engine
+        # Step 4: Reasoning engine (optional)
         display_loading_bar("Initializing reasoning engine", 4, 7)
-        reasoning_engine = ReasoningEngine(vector_store)
-        await reasoning_engine.initialize()
-        matrix_print("    ✓ Reasoning engine online", "success")
+        if ReasoningEngine is not None and vector_store is not None:
+            reasoning_engine = ReasoningEngine(vector_store)
+            await reasoning_engine.initialize()
+            matrix_print("    ✓ Reasoning engine online", "success")
+        else:
+            matrix_print("    ⚠️  Reasoning engine not available (degraded mode)", "warning")
 
         # Step 5: LLM model
         display_loading_bar("Loading LLM model", 5, 7)
@@ -748,10 +873,10 @@ async def lifespan(app: FastAPI):
     yield
     
     # Cleanup
-    matrix_print("\n    🔌 SHUTTING DOWN NEURAL SYSTEMS...", "warning")
-    if vector_store:
+    matrix_print("\n    🔌 SHUTTING DOWN SYSTEMS...", "warning")
+    if vector_store and hasattr(vector_store, "cleanup"):
         await vector_store.cleanup()
-    if reasoning_engine:
+    if reasoning_engine and hasattr(reasoning_engine, "cleanup"):
         await reasoning_engine.cleanup()
     
     matrix_print("    ✓ Shutdown complete\n", "success")
@@ -759,8 +884,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="VaLLM - Vector-based Local LLM",
-    description="Private cloud operations AI with embeddings and chain-of-thoughts reasoning",
+    title="VaLLM Specialist Model",
+    description="Multi-purpose AI for document verification, financial analysis, billing processing, and business recommendations",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -802,11 +927,22 @@ except ImportError:
 # Log startup message
 logger.info(f"📁 Logs will be saved to: {LOG_FILE}")
 
-# Include routes
-app.include_router(router, prefix="/api/models/v1")
-app.include_router(router_v2, prefix="/api/models/v2")
-app.include_router(router_v3, prefix="/api/models/v3")
-app.include_router(cloud_router)  # POST /api/cloud/provision-intent (intent + Golang payload)
+# Include ML/LLM routes (conditionally — modules may be absent during development)
+def _try_include_router(app_instance, module_path: str, prefix: str, attr: str = "router", label: str = ""):
+    """Attempt to import and register a router; log a warning if unavailable."""
+    try:
+        import importlib
+        mod = importlib.import_module(module_path, package="app")
+        rtr = getattr(mod, attr, None)
+        if rtr is not None:
+            app_instance.include_router(rtr, prefix=prefix)
+            logger.info(f"Registered {label or module_path} at {prefix}")
+    except Exception as exc:
+        logger.warning(f"Router {label or module_path} not available: {exc}")
+
+_try_include_router(app, ".services.ai.ml.llm_router", "/api/models/v1", label="LLM Router v1")
+_try_include_router(app, ".services.ai.ml.llm_router", "/api/models/v2", attr="router_v2", label="LLM Router v2")
+_try_include_router(app, ".services.ai.ml.llm_router", "/api/models/v3", attr="router_v3", label="LLM Router v3")
 
 # Include monitoring routes
 try:
@@ -878,8 +1014,8 @@ async def root():
 </head>
 <body>
     <div class="container">
-        <h1>VaLLM</h1>
-        <p>Vector-Augmented Local Language Model</p>
+        <h1>VaLLM Specialist Model</h1>
+        <p>Document Intelligence &bull; Financial Analysis &bull; Business AI</p>
         <div class="status">Online</div>
     </div>
 </body>

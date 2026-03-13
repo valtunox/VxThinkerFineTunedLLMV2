@@ -1,9 +1,12 @@
 """
-Async Celery Service for cloud operations, supporting Redis and Postgres backends.
+Async Celery Service for recruitment, sales, and email campaign operations, supporting Redis and Postgres backends.
 Provides task submission, status, and result retrieval.
 """
 from typing import Any, Dict, Optional
 import asyncio
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class CeleryService:
     async def submit_tenant_task(self, tenant_id: str, task_name: str, args: list, kwargs: dict, priority: int = 5) -> str:
@@ -56,7 +59,7 @@ class CeleryService:
 
     async def batch_submit_tasks(self, tenant_id: str, tasks: list) -> list:
         """
-        Submit a batch of tasks for a tenant (for heavy cloud ops).
+        Submit a batch of tasks for a tenant (for heavy batch operations e.g. email campaigns, resume processing).
         Args:
             tenant_id: The tenant identifier.
             tasks: List of dicts with keys: task_name, args, kwargs, priority.
@@ -88,7 +91,7 @@ class CeleryService:
             return True
         return False
     """
-    Async Celery Service for managing distributed tasks in the cloud.
+    Async Celery Service for managing distributed tasks (recruitment, sales, email campaigns, resume uploads).
     Supports Redis and Postgres as brokers/backends.
     """
     def __init__(self, redis_client: Any = None, postgres_client: Any = None):

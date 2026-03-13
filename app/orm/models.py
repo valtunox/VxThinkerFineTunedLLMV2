@@ -223,3 +223,131 @@ class Workspace(Base, UUIDPrimaryKeyMixin, TimestampMixin, AIModelFieldsMixin):
 
     def __repr__(self) -> str:
         return f"<Workspace(id={self.id}, name={self.name!r}, user_id={self.user_id})>"
+
+
+# ---------------------------------------------------------------------------
+# 5. Document (VaLLM-managed)
+# ---------------------------------------------------------------------------
+
+class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Document record for verification, billing, and financial analysis."""
+
+    __tablename__ = "documents"
+
+    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+    user_id = Column(BigInteger, ForeignKey("users_user.id"), nullable=True, index=True)
+
+    document_type = Column(String(50), nullable=False, server_default="general")  # invoice, receipt, contract, identity, financial_statement
+    title = Column(String(500), nullable=True)
+    description = Column(Text, nullable=True)
+    file_path = Column(String(1024), nullable=True)
+    file_name = Column(String(500), nullable=True)
+    file_size_bytes = Column(BigInteger, nullable=True)
+    mime_type = Column(String(128), nullable=True)
+    content_text = Column(Text, nullable=True)
+    content_hash = Column(String(128), nullable=True)
+    language = Column(String(10), nullable=True)
+    page_count = Column(Integer, nullable=True)
+
+    extraction_status = Column(String(30), nullable=False, server_default="pending")  # pending, processing, completed, failed
+    extraction_metadata = Column(JSONB, nullable=True)
+
+    verification_status = Column(String(30), nullable=True)  # pending, verified, rejected, flagged
+    verified_by = Column(BigInteger, nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+    confidence_score = Column(Numeric(5, 4), nullable=True)
+
+    tags = Column(JSONB, nullable=True)
+    custom_fields = Column(JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Document(id={self.id}, type={self.document_type!r}, title={self.title!r})>"
+
+
+# ---------------------------------------------------------------------------
+# 6. VerificationRecord (audit trail)
+# ---------------------------------------------------------------------------
+
+class VerificationRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Audit trail for document verification results."""
+
+    __tablename__ = "verification_records"
+
+    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
+    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+    verifier_id = Column(BigInteger, nullable=True)
+
+    verification_type = Column(String(50), nullable=False)  # authenticity, completeness, compliance, fraud_check
+    status = Column(String(30), nullable=False, server_default="pending")  # pending, passed, failed, flagged
+    confidence_score = Column(Numeric(5, 4), nullable=True)
+    findings = Column(JSONB, nullable=True)
+    risk_flags = Column(JSONB, nullable=True)
+    notes = Column(Text, nullable=True)
+    verification_method = Column(String(50), nullable=True)  # ai, manual, hybrid
+    model_version = Column(String(50), nullable=True)
+    processing_time_ms = Column(Integer, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<VerificationRecord(id={self.id}, doc={self.document_id}, status={self.status!r})>"
+
+
+# ---------------------------------------------------------------------------
+# 7. Transaction (billing / accounting)
+# ---------------------------------------------------------------------------
+
+class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Financial transaction extracted from documents or entered manually."""
+
+    __tablename__ = "transactions"
+
+    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
+
+    transaction_type = Column(String(50), nullable=False)  # income, expense, transfer, invoice, payment
+    amount = Column(Numeric(18, 4), nullable=False)
+    currency = Column(String(3), nullable=False, server_default="USD")
+    status = Column(String(30), nullable=False, server_default="pending")  # pending, completed, reconciled, disputed
+    reference_number = Column(String(255), nullable=True)
+    counterparty_name = Column(String(500), nullable=True)
+    category = Column(String(100), nullable=True)
+    subcategory = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    line_items = Column(JSONB, nullable=True)
+    tax_amount = Column(Numeric(18, 4), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+    reconciliation_status = Column(String(30), nullable=True)
+    metadata_ = Column("metadata", JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Transaction(id={self.id}, type={self.transaction_type!r}, amount={self.amount})>"
+
+
+# ---------------------------------------------------------------------------
+# 8. BusinessRecommendation (AI insights)
+# ---------------------------------------------------------------------------
+
+class BusinessRecommendation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """AI-generated business recommendation / insight."""
+
+    __tablename__ = "business_recommendations"
+
+    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+
+    recommendation_type = Column(String(50), nullable=False)  # cost_optimization, risk_alert, growth_opportunity, compliance
+    title = Column(String(500), nullable=False)
+    summary = Column(Text, nullable=True)
+    details = Column(JSONB, nullable=True)
+    impact_score = Column(Numeric(5, 4), nullable=True)
+    confidence = Column(Numeric(5, 4), nullable=True)
+    priority = Column(String(20), nullable=False, server_default="medium")  # low, medium, high, critical
+    status = Column(String(30), nullable=False, server_default="active")  # active, implemented, dismissed, expired
+    data_sources = Column(JSONB, nullable=True)
+    model_version = Column(String(50), nullable=True)
+    valid_until = Column(DateTime(timezone=True), nullable=True)
+    implemented_at = Column(DateTime(timezone=True), nullable=True)
+    feedback = Column(JSONB, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<BusinessRecommendation(id={self.id}, type={self.recommendation_type!r}, title={self.title!r})>"
