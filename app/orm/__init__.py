@@ -1,22 +1,26 @@
-"""
-VaLLM ORM Layer
-================
-Read-only SQLAlchemy models mapping to InfinityAI's vacloudopsdb1 tables.
-VaLLM does NOT own or create these tables -- InfinityAI does.
-"""
-
-from app.orm.base import Base
-from app.orm.models import User, APIKey, Organization, Workspace
-from app.orm.session import SessionLocal, get_db, get_db_context, engine
+"""ORM package — models and base."""
+from app.orm.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+from app.orm.models import (
+    Tenant,
+    Session,
+    Document,
+    DocumentChunk,
+    DocumentEmbedding,
+    VerificationRecord,
+    Transaction,
+    BusinessRecommendation,
+)
 
 __all__ = [
     "Base",
-    "User",
-    "APIKey",
-    "Organization",
-    "Workspace",
-    "SessionLocal",
-    "get_db",
-    "get_db_context",
-    "engine",
+    "TimestampMixin",
+    "UUIDPrimaryKeyMixin",
+    "Tenant",
+    "Session",
+    "Document",
+    "DocumentChunk",
+    "DocumentEmbedding",
+    "VerificationRecord",
+    "Transaction",
+    "BusinessRecommendation",
 ]

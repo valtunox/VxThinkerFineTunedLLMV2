@@ -107,9 +107,10 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
     print("-" * 70)
 
     if dataset_dir and dataset_dir.exists():
-        csv_paths = sorted(p for p in dataset_dir.glob("*.csv") if p.is_file())
+        # Recursively find CSVs in all subdirectories (industry folders)
+        csv_paths = sorted(p for p in dataset_dir.rglob("*.csv") if p.is_file())
         if not csv_paths:
-            raise FileNotFoundError(f"No CSV files found in: {dataset_dir}")
+            raise FileNotFoundError(f"No CSV files found in: {dataset_dir} (searched recursively)")
 
         if dataset_path.exists():
             csv_paths = [dataset_path] + [p for p in csv_paths if p.resolve() != dataset_path.resolve()]
@@ -438,7 +439,7 @@ async def run_precompute(
     base = base_path if base_path is not None else _app_dir
     data_dir = dataset_dir if dataset_dir is not None else base / "data" / "datasets"
     data_dir = Path(data_dir)
-    csvs = sorted(data_dir.glob("*.csv")) if data_dir.exists() else []
+    csvs = sorted(data_dir.rglob("*.csv")) if data_dir.exists() else []
     if not csvs:
         raise FileNotFoundError(f"No CSV files found in: {data_dir}")
     dataset_path = csvs[0]

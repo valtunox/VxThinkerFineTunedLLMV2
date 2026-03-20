@@ -133,8 +133,8 @@ class Settings(BaseSettings):
     faiss_index_path: str = "./app/data/vectorstore"
     
     # AI Model Configuration
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_dimension: int = 384
+    embedding_model: str = "BAAI/bge-large-en-v1.5"
+    embedding_dimension: int = 1024
     embedding_batch_size: int = 32
     embedding_device: str = "cpu"
     

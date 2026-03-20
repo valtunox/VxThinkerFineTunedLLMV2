@@ -47,12 +47,12 @@ Thumbs.db
 /app/logs/
 
 # Allow dataset directories and CSV/JSON files
-!app/data/
-!app/data/datasets/
-!app/data/datasets/**
-!app/data/datasets/**/*.csv
-!app/data/datasets/**/*.json
-!app/data/datasets/**/*.txt
+app/data/
+app/data/datasets/
+app/data/datasets/**
+app/data/datasets/**/*.csv
+app/data/datasets/**/*.json
+app/data/datasets/**/*.txt
 
 # Still ignore model weights and vectorstore binaries
 app/data/models/**/*.bin

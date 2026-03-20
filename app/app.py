@@ -182,8 +182,8 @@ API ENDPOINTS:
 DEPLOYMENT:
 ===========
     Single Node:  python -m app.app
-    Production:   uvicorn app.app:app --host 0.0.0.0 --port 8746 --workers 4
-    Docker:       docker run -p 8746:8746 vallm:latest
+    Production:   uvicorn app.app:app --host 0.0.0.0 --port 8747 --workers 4
+    Docker:       docker run -p 8746:8747 vallm:latest
     Kubernetes:   See deployment/ for manifests
 """
 
@@ -194,7 +194,7 @@ import logging
 import time
 import uuid
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List
@@ -287,7 +287,7 @@ def log_request(request_id: str, method: str, path: str, client: str, body: dict
     log_entry = {
         "type": "REQUEST",
         "request_id": request_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "method": method,
         "path": path,
         "client_ip": client,
@@ -300,7 +300,7 @@ def log_request(request_id: str, method: str, path: str, client: str, body: dict
     # Detailed file log
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(f"\n{'='*80}\n")
-        f.write(f"REQUEST | {datetime.utcnow().isoformat()}\n")
+        f.write(f"REQUEST | {datetime.now(timezone.utc).isoformat()}\n")
         f.write(f"{'='*80}\n")
         f.write(json.dumps(log_entry, indent=2))
         f.write("\n")
@@ -311,7 +311,7 @@ def log_response(request_id: str, status_code: int, duration_ms: float, response
     log_entry = {
         "type": "RESPONSE",
         "request_id": request_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "status_code": status_code,
         "duration_ms": round(duration_ms, 2),
         "response_preview": response_preview[:300] if response_preview else None
@@ -332,7 +332,7 @@ def log_response(request_id: str, status_code: int, duration_ms: float, response
     
     # Detailed file log
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(f"\nRESPONSE | {datetime.utcnow().isoformat()}\n")
+        f.write(f"\nRESPONSE | {datetime.now(timezone.utc).isoformat()}\n")
         f.write(f"{'-'*40}\n")
         f.write(json.dumps(log_entry, indent=2))
         f.write(f"\n{'='*80}\n\n")
@@ -522,8 +522,8 @@ def run_train():
 
 
 def check_csv_files(data_dir: Path) -> int:
-    """Check how many CSV files exist in data directory"""
-    csv_files = list(data_dir.glob("*.csv"))
+    """Check how many CSV files exist in data directory (recursive for industry subdirs)"""
+    csv_files = list(data_dir.rglob("*.csv"))
     return len(csv_files)
 
 
@@ -556,7 +556,7 @@ def _gather_model_info(model_dir: Path) -> Dict[str, Any]:
 def _gather_vectorstore_info(vectorstore_dir: Path, vector_count: int, datasets_dir: Path) -> Dict[str, Any]:
     """Gather vectorstore and dataset metadata for display."""
     info: Dict[str, Any] = {"vector_count": vector_count}
-    faiss_file = vectorstore_dir / "faiss_index.bin"
+    faiss_file = vectorstore_dir / "index.faiss"
     docs_file = vectorstore_dir / "documents.pkl"
     if faiss_file.exists():
         info["index_size_mb"] = round(faiss_file.stat().st_size / (1024 * 1024), 1)
@@ -564,7 +564,7 @@ def _gather_vectorstore_info(vectorstore_dir: Path, vector_count: int, datasets_
         info["docs_size_mb"] = round(docs_file.stat().st_size / (1024 * 1024), 1)
     if datasets_dir.exists():
         dataset_files = sorted(
-            p.name for p in datasets_dir.iterdir()
+            str(p.relative_to(datasets_dir)) for p in datasets_dir.rglob("*")
             if p.is_file() and p.suffix.lower() in {".csv", ".txt", ".sql", ".md", ".pdf", ".json"}
         )
         info["dataset_files"] = dataset_files
@@ -606,7 +606,7 @@ def display_matrix_banner():
         "    ██╗   ██╗ █████╗ ██╗     ██╗     ███╗   ███╗",
         "    ██║   ██║██╔══██╗██║     ██║     ████╗ ████║",
         "    ██║   ██║███████║██║     ██║     ██╔████╔██║",
-        "    ╚██╗ ██╔╝██╔══██║██║     ██║     ██║╚██╔╝██║",
+        "    ╚██╗ ██╔╝██╔══██║██║     ██║     ██║╚██╔╝██║", 
         "     ╚████╔╝ ██║  ██║███████╗███████╗██║ ╚═╝ ██║",
         "      ╚═══╝  ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝     ╚═╝",
     ]
@@ -761,9 +761,9 @@ async def lifespan(app: FastAPI):
         data_dir = Path(__file__).parent / "data"
         datasets_dir = data_dir / "datasets"
         vectorstore_dir = data_dir / "vectorstore"
-        faiss_index_path = vectorstore_dir / "faiss_index.bin"
+        faiss_index_path = vectorstore_dir / "index.faiss"
         documents_file = vectorstore_dir / "documents.pkl"
-        model_dir = data_dir / "models"
+        model_dir = data_dir / "models" / "model"
         device = "cuda" if torch.cuda.is_available() else "cpu"
         if not data_dir.exists():
             data_dir.mkdir(parents=True, exist_ok=True)
@@ -969,54 +969,58 @@ async def root():
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VaLLM Status</title>
+    <title>VaLLM Specialist — Multi-Industry AI</title>
     <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #2b5876, #4e4376);
-            color: white;
-            text-align: center;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: white; text-align: center;
         }
         .container {
-            padding: 40px;
-            border-radius: 15px;
-            background: rgba(0, 0, 0, 0.2);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.18);
+            padding: 50px 60px; border-radius: 20px;
+            background: rgba(255,255,255,0.05);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.12);
+            max-width: 700px;
         }
-        h1 {
-            font-size: 4rem;
-            margin-bottom: 10px;
-            font-weight: 600;
+        h1 { font-size: 2.8rem; margin-bottom: 8px; font-weight: 700; }
+        .subtitle { font-size: 1.1rem; color: #a8a8d8; margin-bottom: 24px; }
+        .badge {
+            display: inline-block; padding: 10px 28px; border-radius: 30px;
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+            font-size: 1.2rem; font-weight: 600; margin-bottom: 28px;
         }
-        p {
-            font-size: 1.5rem;
-            margin: 5px 0;
+        .industries { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 28px; }
+        .ind {
+            padding: 6px 16px; border-radius: 20px;
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+            font-size: 0.85rem; color: #c8c8f0;
         }
-        .status {
-            display: inline-block;
-            padding: 10px 25px;
-            border-radius: 25px;
-            background-color: #27ae60;
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin-top: 20px;
-        }
+        .caps { font-size: 0.9rem; color: #888; line-height: 1.8; }
+        .caps b { color: #ccc; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>VaLLM Specialist Model</h1>
-        <p>Document Intelligence &bull; Financial Analysis &bull; Business AI</p>
-        <div class="status">Online</div>
+        <p class="subtitle">Multi-Industry Fine-Tuned SLM &bull; Production-Grade AI Engine</p>
+        <div class="badge">● Online</div>
+        <div class="industries">
+            <span class="ind">🏥 Healthcare</span>
+            <span class="ind">💰 Finance &amp; Billing</span>
+            <span class="ind">☁️ Cloud &amp; DevOps</span>
+            <span class="ind">⚙️ Automation</span>
+            <span class="ind">🎧 Customer Service</span>
+        </div>
+        <div class="caps">
+            <b>Document Analysis</b> &bull; <b>KYC Parsing</b> &bull; <b>Fraud Detection</b><br>
+            <b>Invoice Processing</b> &bull; <b>Report Verification</b> &bull; <b>Entity Scoring</b><br>
+            <b>Semantic Search (FAISS + BGE-Large)</b> &bull; <b>SHAP Explainability</b>
+        </div>
     </div>
 </body>
 </html>
@@ -1254,10 +1258,11 @@ if __name__ == "__main__":
         except (AttributeError, Exception):
             pass
 
+    port = int(os.getenv("PORT", "8747"))
     uvicorn.run(
         app,  # Pass the app object directly to avoid double import issues
         host="0.0.0.0",
-        port=8746,
+        port=port,
         reload=False
     )
 

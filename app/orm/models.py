@@ -1,232 +1,112 @@
 """
-ORM Models for VaLLM -- Read-Only Access to InfinityAI Tables
-==============================================================
-These models map to EXISTING tables in vacloudopsdb1.
-VaLLM never creates or migrates these tables -- InfinityAI owns them.
+ORM Models for VaLLM Specialist Model
+=======================================
+Lightweight schema for document analysis, verification, and financial AI.
 
-Tables used:
-  - users_user          : Identify the calling user / developer
-  - users_apikey        : Validate X-API-Key header
-  - users_organization  : Tenant / organization context
-  - infrastructure_workspace : Workspace context for scoped queries
+Tables (8 total):
+  - tenants                  : Multi-tenant isolation
+  - sessions                 : User/agent session tracking
+  - documents                : Document records (invoices, receipts, contracts, etc.)
+  - document_chunks          : Chunked content for RAG embeddings
+  - document_embeddings      : Vector references + metadata for FAISS search
+  - verification_records     : Audit trail for document verification
+  - transactions             : Financial transactions extracted from documents
+  - business_recommendations : AI-generated insights
+
+Author: Joel Otepa Wembo
 """
 
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Integer, BigInteger, Boolean, DateTime, Text,
-    Numeric, ForeignKey, func,
+    Numeric, Float, ForeignKey, func, Index,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
-from app.orm.base import (
-    Base,
-    TimestampMixin,
-    UUIDPrimaryKeyMixin,
-    BigSerialPrimaryKeyMixin,
-    ExtendedFieldsMixin,
-    AIModelFieldsMixin,
-    QueryFieldsMixin,
-)
+from app.orm.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 
 # ---------------------------------------------------------------------------
-# 1. Organization (Tenant)
+# 1. Tenant
 # ---------------------------------------------------------------------------
 
-class Organization(Base, UUIDPrimaryKeyMixin, TimestampMixin, ExtendedFieldsMixin):
-    """Tenant organization. Read-only from VaLLM's perspective."""
-
-    __tablename__ = "users_organization"
-
-    name = Column(String(255), nullable=False, server_default="test_org")
-
-    # Tenant / subscription fields
-    tenant_subscription_id = Column(String(255), nullable=True)
-    tenant_primary_node_host = Column(String(255), nullable=True)
-    tenant_primary_domain = Column(String(255), nullable=True)
-    tenant_node_details = Column(Text, nullable=True)
-    tenants_users_list = Column(JSONB, nullable=True)
-    tenant_alternatives_host = Column(JSONB, nullable=True)
-
-    # AI-specific organization fields
-    ai_growth_prediction = Column(Numeric(5, 2), nullable=True)
-    ai_security_posture_score = Column(Numeric(5, 2), nullable=True)
-    ai_resource_optimization_potential = Column(JSONB, nullable=True)
-    ai_onboarding_recommendations = Column(JSONB, nullable=True)
-
-    # Relationships
-    users = relationship("User", back_populates="organization")
-
-    def __repr__(self) -> str:
-        return f"<Organization(id={self.id}, name={self.name!r})>"
-
-
-# ---------------------------------------------------------------------------
-# 2. User (Developer)
-# ---------------------------------------------------------------------------
-
-class User(Base, BigSerialPrimaryKeyMixin, ExtendedFieldsMixin, AIModelFieldsMixin, QueryFieldsMixin):
+class Tenant(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """
-    Core user model mapping to InfinityAI's users_user table.
-    In the VaLLM context, "developer" = a user with an active API key.
-    There is no separate developer table -- this IS the developer table.
+    Multi-tenant isolation. Each tenant has its own documents, sessions,
+    and financial data. Mirrors the tenants table from the Django admin.
     """
 
-    __tablename__ = "users_user"
+    __tablename__ = "tenants"
 
-    # ---- Authentication & identity -----------------------------------------
-    password = Column(String(128), nullable=False)
-    last_login = Column(DateTime(timezone=True), nullable=True)
-    is_superuser = Column(Boolean, nullable=False, default=False)
-    username = Column(String(150), nullable=False, unique=True)
-    first_name = Column(String(150), nullable=True)
-    last_name = Column(String(150), nullable=True)
-    is_staff = Column(Boolean, nullable=False, default=False)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(100), nullable=False, unique=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    date_joined = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
-    # ---- Deployment / region -----------------------------------------------
-    deployed_where = Column(String(16), nullable=False, default="AMERICA-1")
+    # Subscription / billing tier
+    plan = Column(String(50), nullable=False, server_default="free")  # free, starter, pro, enterprise
+    max_documents = Column(Integer, nullable=False, server_default="100")
+    max_storage_mb = Column(Integer, nullable=False, server_default="500")
 
-    # ---- Contact -----------------------------------------------------------
-    email = Column(String(254), nullable=False, unique=True)
-    phone = Column(String(15), nullable=True)
-    company_name = Column(String(255), nullable=True)
+    # Contact
+    contact_email = Column(String(254), nullable=True)
+    contact_name = Column(String(255), nullable=True)
 
-    # ---- MFA ---------------------------------------------------------------
-    mfa_enabled = Column(Boolean, nullable=False, default=False)
-
-    # ---- Verification ------------------------------------------------------
-    is_verified = Column(Boolean, nullable=False, default=False)
-
-    # ---- Restrictions ------------------------------------------------------
-    is_restricted = Column(Boolean, nullable=False, default=False)
-
-    # ---- Organization FK ---------------------------------------------------
-    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
-
-    # ---- AI-specific user fields -------------------------------------------
-    ai_risk_score = Column(Numeric(5, 2), nullable=True)
-    ai_sentiment_analysis = Column(JSONB, nullable=True)
-    ai_recommended_actions = Column(JSONB, nullable=True)
-    ai_activity_anomaly_detected = Column(Boolean, nullable=False, default=False)
-    user_feedback_on_ai = Column(JSONB, nullable=True)
-
-    # ---- Relationships -----------------------------------------------------
-    organization = relationship("Organization", back_populates="users")
-    api_keys = relationship("APIKey", back_populates="user")
-
-    @property
-    def full_name(self) -> str:
-        parts = [p for p in (self.first_name, self.last_name) if p]
-        return " ".join(parts) if parts else self.username
-
-    @property
-    def is_locked(self) -> bool:
-        return not self.is_active and self.is_restricted
-
-    def __repr__(self) -> str:
-        return f"<User(id={self.id}, username={self.username!r}, email={self.email!r})>"
-
-
-# ---------------------------------------------------------------------------
-# 3. APIKey
-# ---------------------------------------------------------------------------
-
-class APIKey(Base, UUIDPrimaryKeyMixin):
-    """
-    Per-user API key for authenticating requests to VaLLM.
-    InfinityAI creates these keys; VaLLM validates them via X-API-Key header.
-    The token_hash is SHA-256 of the raw key that InfinityAI issued.
-    """
-
-    __tablename__ = "users_apikey"
-
-    user_id = Column(BigInteger, ForeignKey("users_user.id"), nullable=False, index=True)
-    environment = Column(String(20), nullable=False, default="DEVELOPMENT")
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    token_hash = Column(String(128), nullable=False)
-
-    # Scope & access
-    allowed_services = Column(JSONB, nullable=True)
-    disallowed_services = Column(JSONB, nullable=True)
-    scopes = Column(JSONB, nullable=True)
-    is_read_only = Column(Boolean, nullable=False, default=False)
-    rate_limit = Column(Integer, nullable=False, default=1000)
-    last_ip = Column(String(45), nullable=True)
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    expires_at = Column(DateTime(timezone=True), nullable=True)
-    is_active = Column(Boolean, nullable=False, default=True)
-    last_used_at = Column(DateTime(timezone=True), nullable=True)
-    usage_count = Column(Integer, nullable=False, default=0)
-
-    # Security
-    allowed_ips = Column(JSONB, nullable=True)
+    # Settings
+    settings = Column(JSONB, nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=True)
 
     # Relationships
-    user = relationship("User", back_populates="api_keys")
-
-    @property
-    def is_expired(self) -> bool:
-        if self.expires_at is None:
-            return False
-        return datetime.now(self.expires_at.tzinfo) > self.expires_at
-
-    @property
-    def is_usable(self) -> bool:
-        return self.is_active and not self.is_expired
+    sessions = relationship("Session", back_populates="tenant", lazy="dynamic")
+    documents = relationship("Document", back_populates="tenant", lazy="dynamic")
+    transactions = relationship("Transaction", back_populates="tenant", lazy="dynamic")
+    recommendations = relationship("BusinessRecommendation", back_populates="tenant", lazy="dynamic")
 
     def __repr__(self) -> str:
-        return f"<APIKey(id={self.id}, name={self.name!r}, active={self.is_active})>"
+        return f"<Tenant(id={self.id}, name={self.name!r}, slug={self.slug!r})>"
 
 
 # ---------------------------------------------------------------------------
-# 4. Workspace (read-only context for scoped queries)
+# 2. Session
 # ---------------------------------------------------------------------------
 
-class Workspace(Base, UUIDPrimaryKeyMixin, TimestampMixin, AIModelFieldsMixin):
-    """Infrastructure workspace. Read-only from VaLLM's perspective."""
+class Session(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """
+    Tracks user or agent sessions. Each session belongs to a tenant
+    and can be linked to documents processed during it.
+    """
 
-    __tablename__ = "infrastructure_workspace"
+    __tablename__ = "sessions"
 
-    name = Column(String(255), nullable=False)
-    user_id = Column(BigInteger, nullable=False)
-    organization_id = Column(PG_UUID(as_uuid=True), nullable=False)
-    insta_node_id = Column(BigInteger, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=True)
-    is_default_workspace = Column(Boolean, default=True, nullable=True)
-    session_id = Column(PG_UUID(as_uuid=True), nullable=False)
-    configuration = Column(JSONB, nullable=False)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
 
-    # State / reports
-    state_facts = Column(JSONB, nullable=True)
-    reports = Column(JSONB, nullable=True)
+    # Who / what initiated the session
+    session_type = Column(String(30), nullable=False, server_default="user")  # user, agent, api, system
+    external_user_id = Column(String(255), nullable=True)  # caller's user ID (opaque string)
+    agent_name = Column(String(100), nullable=True)
 
-    # Extended fields (VARCHAR 64 variant for this table)
-    extended_editable_field_1 = Column(String(64), nullable=True)
-    extended_editable_field_2 = Column(String(64), nullable=True)
-    extended_editable_field_3 = Column(String(64), nullable=True)
-    extended_editable_field_4 = Column(String(64), nullable=True)
-    extended_editable_field_5 = Column(String(64), nullable=True)
-    extended_boolean_field_1 = Column(Boolean, default=True, nullable=True)
-    extended_boolean_field_2 = Column(Boolean, default=True, nullable=True)
-    extended_boolean_field_3 = Column(Boolean, default=True, nullable=True)
-    extended_json_field_1 = Column(JSONB, nullable=True)
-    extended_json_field_2 = Column(JSONB, nullable=True)
-    extended_json_field_3 = Column(JSONB, nullable=True)
-    extended_json_field_4 = Column(JSONB, nullable=True)
+    # State
+    status = Column(String(20), nullable=False, server_default="active")  # active, completed, expired, failed
+    started_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    ended_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Context
+    context = Column(JSONB, nullable=True)  # arbitrary session context
+    metadata_ = Column("metadata", JSONB, nullable=True)
+
+    # Stats
+    document_count = Column(Integer, nullable=False, server_default="0")
+    query_count = Column(Integer, nullable=False, server_default="0")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="sessions")
 
     def __repr__(self) -> str:
-        return f"<Workspace(id={self.id}, name={self.name!r}, user_id={self.user_id})>"
+        return f"<Session(id={self.id}, tenant_id={self.tenant_id}, type={self.session_type!r})>"
 
 
 # ---------------------------------------------------------------------------
-# 5. Document (VaLLM-managed)
+# 3. Document
 # ---------------------------------------------------------------------------
 
 class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -234,34 +114,138 @@ class Document(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "documents"
 
-    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
-    user_id = Column(BigInteger, ForeignKey("users_user.id"), nullable=True, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    session_id = Column(PG_UUID(as_uuid=True), ForeignKey("sessions.id"), nullable=True, index=True)
 
-    document_type = Column(String(50), nullable=False, server_default="general")  # invoice, receipt, contract, identity, financial_statement
+    # Document identity
+    document_type = Column(String(50), nullable=False, server_default="general")
+    # Types: invoice, receipt, contract, identity, financial_statement, report, general
     title = Column(String(500), nullable=True)
     description = Column(Text, nullable=True)
+
+    # File info
     file_path = Column(String(1024), nullable=True)
     file_name = Column(String(500), nullable=True)
     file_size_bytes = Column(BigInteger, nullable=True)
     mime_type = Column(String(128), nullable=True)
+
+    # Extracted content
     content_text = Column(Text, nullable=True)
     content_hash = Column(String(128), nullable=True)
     language = Column(String(10), nullable=True)
     page_count = Column(Integer, nullable=True)
 
-    extraction_status = Column(String(30), nullable=False, server_default="pending")  # pending, processing, completed, failed
+    # Processing status
+    extraction_status = Column(String(30), nullable=False, server_default="pending")
+    # Status: pending, processing, completed, failed
     extraction_metadata = Column(JSONB, nullable=True)
 
-    verification_status = Column(String(30), nullable=True)  # pending, verified, rejected, flagged
-    verified_by = Column(BigInteger, nullable=True)
-    verified_at = Column(DateTime(timezone=True), nullable=True)
+    # Verification
+    verification_status = Column(String(30), nullable=True)
+    # Status: pending, verified, rejected, flagged
     confidence_score = Column(Numeric(5, 4), nullable=True)
 
+    # Flexible fields
     tags = Column(JSONB, nullable=True)
     custom_fields = Column(JSONB, nullable=True)
 
+    # Relationships
+    tenant = relationship("Tenant", back_populates="documents")
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan", lazy="dynamic")
+    verification_records = relationship("VerificationRecord", back_populates="document", cascade="all, delete-orphan", lazy="dynamic")
+    transactions = relationship("Transaction", back_populates="document", lazy="dynamic")
+
     def __repr__(self) -> str:
         return f"<Document(id={self.id}, type={self.document_type!r}, title={self.title!r})>"
+
+
+# ---------------------------------------------------------------------------
+# 4. DocumentChunk (NEW — for RAG pipeline)
+# ---------------------------------------------------------------------------
+
+class DocumentChunk(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """
+    Chunked content from a document for RAG embeddings.
+    Each document is split into chunks (paragraphs, sections, pages)
+    that are individually embedded and indexed in FAISS.
+    """
+
+    __tablename__ = "document_chunks"
+
+    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    # Chunk identity
+    chunk_index = Column(Integer, nullable=False)  # order within document (0-based)
+    content_text = Column(Text, nullable=False)
+    token_count = Column(Integer, nullable=True)
+    char_count = Column(Integer, nullable=True)
+
+    # Source location within document
+    page_number = Column(Integer, nullable=True)
+    section_title = Column(String(500), nullable=True)
+    start_offset = Column(Integer, nullable=True)  # char offset in full doc text
+    end_offset = Column(Integer, nullable=True)
+
+    # Chunking strategy
+    chunk_strategy = Column(String(50), nullable=True)  # fixed_size, paragraph, page, semantic
+    overlap_tokens = Column(Integer, nullable=True)
+
+    # Metadata
+    content_hash = Column(String(128), nullable=True)
+    metadata_ = Column("metadata", JSONB, nullable=True)
+
+    # Relationships
+    document = relationship("Document", back_populates="chunks")
+    embedding = relationship("DocumentEmbedding", back_populates="chunk", uselist=False, cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_document_chunks_doc_idx", "document_id", "chunk_index", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DocumentChunk(id={self.id}, doc={self.document_id}, idx={self.chunk_index})>"
+
+
+# ---------------------------------------------------------------------------
+# 5. DocumentEmbedding (NEW — FAISS vector references)
+# ---------------------------------------------------------------------------
+
+class DocumentEmbedding(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """
+    Maps document chunks to FAISS vector index entries.
+    Stores the FAISS index offset and embedding metadata so we can
+    trace search results back to their source document and chunk.
+    """
+
+    __tablename__ = "document_embeddings"
+
+    chunk_id = Column(PG_UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+
+    # FAISS reference
+    faiss_index_id = Column(Integer, nullable=False)  # integer offset in FAISS index
+    faiss_index_name = Column(String(100), nullable=False, server_default="default")  # supports multiple indices
+
+    # Embedding info
+    embedding_model = Column(String(100), nullable=False, server_default="BAAI/bge-large-en-v1.5")
+    embedding_dim = Column(Integer, nullable=False, server_default="1024")
+    embedding_hash = Column(String(128), nullable=True)  # hash of the vector for dedup
+
+    # Search metadata
+    content_preview = Column(String(500), nullable=True)  # first N chars for display
+    metadata_ = Column("metadata", JSONB, nullable=True)
+
+    # Relationships
+    chunk = relationship("DocumentChunk", back_populates="embedding")
+
+    __table_args__ = (
+        Index("ix_doc_embeddings_faiss", "faiss_index_name", "faiss_index_id", unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"<DocumentEmbedding(id={self.id}, chunk={self.chunk_id}, faiss_idx={self.faiss_index_id})>"
 
 
 # ---------------------------------------------------------------------------
@@ -273,19 +257,24 @@ class VerificationRecord(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "verification_records"
 
-    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=False, index=True)
-    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
-    verifier_id = Column(BigInteger, nullable=True)
+    document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
 
-    verification_type = Column(String(50), nullable=False)  # authenticity, completeness, compliance, fraud_check
-    status = Column(String(30), nullable=False, server_default="pending")  # pending, passed, failed, flagged
+    verification_type = Column(String(50), nullable=False)
+    # Types: authenticity, completeness, compliance, fraud_check
+    status = Column(String(30), nullable=False, server_default="pending")
+    # Status: pending, passed, failed, flagged
     confidence_score = Column(Numeric(5, 4), nullable=True)
     findings = Column(JSONB, nullable=True)
     risk_flags = Column(JSONB, nullable=True)
     notes = Column(Text, nullable=True)
+
     verification_method = Column(String(50), nullable=True)  # ai, manual, hybrid
     model_version = Column(String(50), nullable=True)
     processing_time_ms = Column(Integer, nullable=True)
+
+    # Relationships
+    document = relationship("Document", back_populates="verification_records")
 
     def __repr__(self) -> str:
         return f"<VerificationRecord(id={self.id}, doc={self.document_id}, status={self.status!r})>"
@@ -300,13 +289,16 @@ class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "transactions"
 
-    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
     document_id = Column(PG_UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True, index=True)
 
-    transaction_type = Column(String(50), nullable=False)  # income, expense, transfer, invoice, payment
+    transaction_type = Column(String(50), nullable=False)
+    # Types: income, expense, transfer, invoice, payment
     amount = Column(Numeric(18, 4), nullable=False)
     currency = Column(String(3), nullable=False, server_default="USD")
-    status = Column(String(30), nullable=False, server_default="pending")  # pending, completed, reconciled, disputed
+    status = Column(String(30), nullable=False, server_default="pending")
+    # Status: pending, completed, reconciled, disputed
+
     reference_number = Column(String(255), nullable=True)
     counterparty_name = Column(String(500), nullable=True)
     category = Column(String(100), nullable=True)
@@ -319,6 +311,10 @@ class Transaction(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     paid_at = Column(DateTime(timezone=True), nullable=True)
     reconciliation_status = Column(String(30), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=True)
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="transactions")
+    document = relationship("Document", back_populates="transactions")
 
     def __repr__(self) -> str:
         return f"<Transaction(id={self.id}, type={self.transaction_type!r}, amount={self.amount})>"
@@ -333,21 +329,28 @@ class BusinessRecommendation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "business_recommendations"
 
-    organization_id = Column(PG_UUID(as_uuid=True), ForeignKey("users_organization.id"), nullable=True, index=True)
+    tenant_id = Column(PG_UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
 
-    recommendation_type = Column(String(50), nullable=False)  # cost_optimization, risk_alert, growth_opportunity, compliance
+    recommendation_type = Column(String(50), nullable=False)
+    # Types: cost_optimization, risk_alert, growth_opportunity, compliance
     title = Column(String(500), nullable=False)
     summary = Column(Text, nullable=True)
     details = Column(JSONB, nullable=True)
     impact_score = Column(Numeric(5, 4), nullable=True)
     confidence = Column(Numeric(5, 4), nullable=True)
-    priority = Column(String(20), nullable=False, server_default="medium")  # low, medium, high, critical
-    status = Column(String(30), nullable=False, server_default="active")  # active, implemented, dismissed, expired
+    priority = Column(String(20), nullable=False, server_default="medium")
+    # Priority: low, medium, high, critical
+    status = Column(String(30), nullable=False, server_default="active")
+    # Status: active, implemented, dismissed, expired
+
     data_sources = Column(JSONB, nullable=True)
     model_version = Column(String(50), nullable=True)
     valid_until = Column(DateTime(timezone=True), nullable=True)
     implemented_at = Column(DateTime(timezone=True), nullable=True)
     feedback = Column(JSONB, nullable=True)
 
+    # Relationships
+    tenant = relationship("Tenant", back_populates="recommendations")
+
     def __repr__(self) -> str:
-        return f"<BusinessRecommendation(id={self.id}, type={self.recommendation_type!r}, title={self.title!r})>"
+        return f"<BusinessRecommendation(id={self.id}, type={self.recommendation_type!r})>"

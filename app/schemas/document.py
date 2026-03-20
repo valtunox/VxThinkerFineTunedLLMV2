@@ -1,11 +1,11 @@
 """
-VaLLM Specialist Model - Document, Accounting, Excel,  & Financial Schemas.
+VaLLM Specialist Model - Document, Chunk, Embedding & Financial Schemas.
 
 Author: Joel Otepa Wembo
 https://joelwembo.com
 
-Pydantic schemas for document verification, billing analysis,
-financial transactions, and business recommendations.
+Pydantic schemas for document management, RAG chunking, verification,
+billing analysis, financial transactions, and business recommendations.
 """
 
 from datetime import datetime
@@ -14,11 +14,72 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# Tenant schemas
+# ---------------------------------------------------------------------------
+
+class TenantCreate(BaseModel):
+    name: str
+    slug: str
+    plan: str = "free"
+    contact_email: Optional[str] = None
+    contact_name: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
+class TenantResponse(BaseModel):
+    id: str
+    name: str
+    slug: str
+    is_active: bool = True
+    plan: str = "free"
+    max_documents: int = 100
+    max_storage_mb: int = 500
+    contact_email: Optional[str] = None
+    contact_name: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Session schemas
+# ---------------------------------------------------------------------------
+
+class SessionCreate(BaseModel):
+    tenant_id: str
+    session_type: str = "user"
+    external_user_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class SessionResponse(BaseModel):
+    id: str
+    tenant_id: str
+    session_type: str
+    external_user_id: Optional[str] = None
+    agent_name: Optional[str] = None
+    status: str = "active"
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    document_count: int = 0
+    query_count: int = 0
+    context: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
 # Document schemas
 # ---------------------------------------------------------------------------
 
 class DocumentCreate(BaseModel):
-    document_type: str = Field(default="general", description="invoice, receipt, contract, identity, financial_statement")
+    tenant_id: str
+    session_id: Optional[str] = None
+    document_type: str = Field(default="general", description="invoice, receipt, contract, identity, financial_statement, report, general")
     title: Optional[str] = None
     description: Optional[str] = None
     file_name: Optional[str] = None
@@ -39,8 +100,8 @@ class DocumentUpdate(BaseModel):
 
 class DocumentResponse(BaseModel):
     id: str
-    organization_id: Optional[str] = None
-    user_id: Optional[int] = None
+    tenant_id: str
+    session_id: Optional[str] = None
     document_type: str
     title: Optional[str] = None
     description: Optional[str] = None
@@ -69,6 +130,78 @@ class DocumentListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# DocumentChunk schemas
+# ---------------------------------------------------------------------------
+
+class DocumentChunkCreate(BaseModel):
+    document_id: str
+    tenant_id: str
+    chunk_index: int
+    content_text: str
+    token_count: Optional[int] = None
+    page_number: Optional[int] = None
+    section_title: Optional[str] = None
+    chunk_strategy: Optional[str] = "fixed_size"
+    overlap_tokens: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class DocumentChunkResponse(BaseModel):
+    id: str
+    document_id: str
+    tenant_id: str
+    chunk_index: int
+    content_text: str
+    token_count: Optional[int] = None
+    char_count: Optional[int] = None
+    page_number: Optional[int] = None
+    section_title: Optional[str] = None
+    chunk_strategy: Optional[str] = None
+    content_hash: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DocumentChunkListResponse(BaseModel):
+    success: bool = True
+    count: int
+    document_id: str
+    data: List[DocumentChunkResponse]
+
+
+# ---------------------------------------------------------------------------
+# DocumentEmbedding schemas
+# ---------------------------------------------------------------------------
+
+class DocumentEmbeddingCreate(BaseModel):
+    chunk_id: str
+    document_id: str
+    tenant_id: str
+    faiss_index_id: int
+    faiss_index_name: str = "default"
+    embedding_model: str = "BAAI/bge-large-en-v1.5"
+    embedding_dim: int = 1024
+    content_preview: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class DocumentEmbeddingResponse(BaseModel):
+    id: str
+    chunk_id: str
+    document_id: str
+    tenant_id: str
+    faiss_index_id: int
+    faiss_index_name: str
+    embedding_model: str
+    embedding_dim: int
+    content_preview: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
 # Verification schemas
 # ---------------------------------------------------------------------------
 
@@ -82,7 +215,7 @@ class VerificationCreate(BaseModel):
 class VerificationResponse(BaseModel):
     id: str
     document_id: str
-    organization_id: Optional[str] = None
+    tenant_id: str
     verification_type: str
     status: str
     confidence_score: Optional[float] = None
@@ -102,6 +235,7 @@ class VerificationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class TransactionCreate(BaseModel):
+    tenant_id: str
     transaction_type: str = Field(description="income, expense, transfer, invoice, payment")
     amount: float
     currency: str = "USD"
@@ -128,7 +262,7 @@ class TransactionUpdate(BaseModel):
 
 class TransactionResponse(BaseModel):
     id: str
-    organization_id: Optional[str] = None
+    tenant_id: str
     document_id: Optional[str] = None
     transaction_type: str
     amount: float
@@ -164,7 +298,7 @@ class TransactionListResponse(BaseModel):
 
 class BusinessRecommendationResponse(BaseModel):
     id: str
-    organization_id: Optional[str] = None
+    tenant_id: str
     recommendation_type: str
     title: str
     summary: Optional[str] = None
@@ -222,7 +356,7 @@ class BillingAnalysisResponse(BaseModel):
 
 class FinancialSummaryResponse(BaseModel):
     success: bool
-    organization_id: Optional[str] = None
+    tenant_id: Optional[str] = None
     period: Optional[str] = None
     total_income: float = 0.0
     total_expenses: float = 0.0

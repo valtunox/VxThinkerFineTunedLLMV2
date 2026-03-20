@@ -421,7 +421,7 @@ def train(cfg: TrainConfig) -> None:
         if not cfg.dataset_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {cfg.dataset_dir}")
 
-        csv_paths = sorted(p for p in cfg.dataset_dir.glob("*.csv") if p.is_file())
+        csv_paths = sorted(p for p in cfg.dataset_dir.rglob("*.csv") if p.is_file())
         if not csv_paths:
             raise FileNotFoundError(f"No CSV files found in: {cfg.dataset_dir}")
 
