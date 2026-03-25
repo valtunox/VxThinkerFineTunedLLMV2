@@ -10,7 +10,12 @@
       "Bash(timeout /t 10 /nobreak)",
       "Bash(grep:*)",
       "Bash(python3:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(wc:*)",
+      "Bash(for f:*)",
+      "Bash(do wc:*)",
+      "Bash(done)",
+      "Bash(ls -la /mnt/c/Users/joelwembo/Desktop/production/va/va_llm_specialist_model/app/tests/tests_*.py)"
     ]
   }
 }

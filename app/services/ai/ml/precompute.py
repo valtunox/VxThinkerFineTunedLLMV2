@@ -42,6 +42,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List
+import numpy as np
 import pandas as pd
 import sys
 import io
@@ -141,6 +142,7 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
             raise FileNotFoundError(f"No valid CSV files could be parsed in: {dataset_dir}")
 
         df = pd.concat(frames, ignore_index=True)
+        df.dropna(how='all', inplace=True)
         print(f"\n  📊 CSV subtotal: {total_rows:,} rows from {len(frames)} file(s)")
     else:
         print(f"  📄 Single file: {dataset_path}")
@@ -166,23 +168,21 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
     total = len(df)
     report_interval = max(1, total // 10)
 
-    for i, row in df.iterrows():
-        row_dict = row.to_dict()
+    records = df.to_dict("records")
+    for i, row_dict in enumerate(records):
         text = row_to_text(row_dict)
         if not text.strip():
             skipped += 1
             continue
-
         texts.append(text)
         content_ids.append(f"csv_{i}")
         metadatas.append({
-            "id": int(i),
+            "id": i,
             "text": text,
             "source": "csv",
-            "raw": {str(k): ("" if pd.isna(v) else str(v)) for k, v in row_dict.items()},
+            "raw": {str(k): ("" if v is None or (isinstance(v, float) and np.isnan(v)) else str(v)) for k, v in row_dict.items()},
         })
-
-        processed = int(i) + 1
+        processed = i + 1
         if processed % report_interval == 0 or processed == total:
             pct = processed / total * 100
             print(f"  ✓ {processed:,}/{total:,} rows ({pct:.0f}%)", flush=True)

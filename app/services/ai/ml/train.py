@@ -277,7 +277,7 @@ def keep_only_required_model_files(model_dir: Path) -> None:
     NOTE: Using a fast tokenizer, `tokenizer.json` is self-contained.
     """
 
-    required = {"config.json", "tokenizer.json", "pytorch_model.bin"}
+    required = {"config.json", "tokenizer.json", "pytorch_model.bin", "tokenizer_config.json", "special_tokens_map.json"}
 
     for p in model_dir.iterdir():
         if p.is_file() and p.name not in required:
@@ -704,7 +704,7 @@ def parse_args() -> TrainConfig:
         default=str(_app / "data" / "models" / "model"),
         help="Output folder (app/data/models/model)",
     )
-    parser.add_argument("--text-max-length", type=int, default=256)
+    parser.add_argument("--text-max-length", type=int, default=512)
     parser.add_argument("--per-device-train-batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=4)
     parser.add_argument("--num-train-epochs", type=float, default=1.0)

@@ -177,7 +177,8 @@ class EmbeddingService:
         self.embedding_cache = {}
         self.cache_hits = 0
         self.cache_misses = 0
-        
+        self.max_cache_size = 10000
+
         # FAISS index management (merged from training/embeddings.py)
         self.faiss_index = None
         self.documents = []  # Store original documents
@@ -421,6 +422,12 @@ class EmbeddingService:
                 for text, embedding in zip(texts_to_process, new_embeddings):
                     cache_key = self._get_cache_key(text)
                     self.embedding_cache[cache_key] = embedding
+                    if len(self.embedding_cache) > self.max_cache_size:
+                        # Evict oldest entries (first 20%)
+                        evict_count = self.max_cache_size // 5
+                        keys_to_evict = list(self.embedding_cache.keys())[:evict_count]
+                        for k in keys_to_evict:
+                            del self.embedding_cache[k]
                     self.cache_misses += 1
                 
                 # Insert new embeddings at correct positions
@@ -581,7 +588,7 @@ class EmbeddingService:
         loop = asyncio.get_event_loop()
         embeddings = await loop.run_in_executor(
             self.executor,
-            lambda: self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+            lambda: self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False, normalize_embeddings=True)
         )
         
         # Add to FAISS index
@@ -876,7 +883,7 @@ class EmbeddingService:
             "dimension": self.dimension,
             "batch_size": self.batch_size,
             "cache_stats": self.get_cache_stats(),
-            "faiss_stats": asyncio.create_task(self.get_faiss_stats()) if self.faiss_index else None
+            "faiss_stats": {"total_vectors": self.faiss_index.ntotal if self.faiss_index else 0}
         }
     
     async def get_vector_store_stats(self) -> Dict[str, Any]:
