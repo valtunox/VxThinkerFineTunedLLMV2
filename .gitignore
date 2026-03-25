@@ -59,3 +59,4 @@ app/data/models/**/*.bin
 app/data/models/**/*.safetensors
 app/data/vectorstore/**/*.bin
 app/data/vectorstore/**/*.pkl
+app/data/
