@@ -15,7 +15,12 @@
       "Bash(for f:*)",
       "Bash(do wc:*)",
       "Bash(done)",
-      "Bash(ls -la /mnt/c/Users/joelwembo/Desktop/production/va/va_llm_specialist_model/app/tests/tests_*.py)"
+      "Bash(ls -la /mnt/c/Users/joelwembo/Desktop/production/va/va_llm_specialist_model/app/tests/tests_*.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8747/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8747/health)",
+      "Bash(netstat -tlnp)",
+      "Bash(docker ps:*)",
+      "Bash(docker exec:*)"
     ]
   }
 }
