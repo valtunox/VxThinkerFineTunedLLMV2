@@ -1,7 +1,7 @@
 """
 Database Migration Script for VaLLM Specialist Model
 =====================================================
-Creates all database tables defined in app.orm.models.
+Creates all database tables defined in app.orm.models
 
 Run from the project root:
     python migration.py
