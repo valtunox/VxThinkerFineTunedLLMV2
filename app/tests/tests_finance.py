@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Finance Dataset Tests
+VA LLM Specialist Model — Finance Dataset Tests
 =================================================
 
 Author: Joel Otepa Wembo
@@ -335,6 +335,6 @@ class TestFinancialTermsQuality:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Finance Dataset Tests")
+    print("VA LLM Specialist Model — Finance Dataset Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

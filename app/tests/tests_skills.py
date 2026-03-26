@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Skills Dataset Tests
+VA LLM Specialist Model — Skills Dataset Tests
 ================================================
 
 Author: Joel Otepa Wembo
@@ -310,6 +310,6 @@ class TestSkillsSearch:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Skills Dataset Tests")
+    print("VA LLM Specialist Model — Skills Dataset Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Real-World Integration Tests
+VA LLM Specialist Model — Real-World Integration Tests
 =======================================================
 
 Author: Joel Otepa Wembo
@@ -522,6 +522,6 @@ class TestDatabasePersistence:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist — Real-World Integration Tests")
+    print("VA LLM Specialist Model — Real-World Integration Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

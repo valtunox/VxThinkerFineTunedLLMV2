@@ -159,7 +159,7 @@ def process_campaign_batch(campaign_id: Optional[int] = None, limit: int = 50) -
         return {"processed": 0, "completed": 0, "failed": 0, "retries": 0}
 
     logger.info(
-        "[CampaignBatch] START campaign_id=%s limit=%d",
+        "[Campaivaltunoxatch] START campaign_id=%s limit=%d",
         campaign_id, limit,
     )
 
@@ -186,7 +186,7 @@ def process_campaign_batch(campaign_id: Optional[int] = None, limit: int = 50) -
             retries = result.get("retries", 0)
 
             logger.info(
-                "[CampaignBatch] DONE campaign_id=%s processed=%s completed=%s "
+                "[Campaivaltunoxatch] DONE campaign_id=%s processed=%s completed=%s "
                 "failed=%s retries=%s elapsed=%.2fs",
                 campaign_id, processed, completed, failed, retries, elapsed,
             )
@@ -198,7 +198,7 @@ def process_campaign_batch(campaign_id: Optional[int] = None, limit: int = 50) -
             last_err = e
             if _is_transient_db_error(e) and attempt < _CAMPAIGN_MAX_RETRIES:
                 logger.warning(
-                    "[CampaignBatch] Transient DB error on attempt %d/%d, retrying in %.1fs: %s",
+                    "[Campaivaltunoxatch] Transient DB error on attempt %d/%d, retrying in %.1fs: %s",
                     attempt, _CAMPAIGN_MAX_RETRIES, _CAMPAIGN_RETRY_DELAY * attempt, e,
                 )
                 import time
@@ -208,7 +208,7 @@ def process_campaign_batch(campaign_id: Optional[int] = None, limit: int = 50) -
 
     elapsed = _t.time() - _start
     logger.error(
-        "[CampaignBatch] FAILED campaign_id=%s error=%s elapsed=%.2fs",
+        "[Campaivaltunoxatch] FAILED campaign_id=%s error=%s elapsed=%.2fs",
         campaign_id, last_err, elapsed,
         exc_info=True,
     )
@@ -236,7 +236,7 @@ def _check_campaign_completion(campaign_id: Optional[int]):
         )
         status_counts = {row[0]: row[1] for row in cursor.fetchall()}
         logger.info(
-            "[CampaignBatch] OUTBOX_STATUS campaign_id=%s breakdown=%s",
+            "[Campaivaltunoxatch] OUTBOX_STATUS campaign_id=%s breakdown=%s",
             campaign_id, status_counts,
         )
 
@@ -254,7 +254,7 @@ def _check_campaign_completion(campaign_id: Optional[int]):
             )
             conn.commit()
             logger.info(
-                "[CampaignBatch] COMPLETED campaign_id=%s (all outbox entries processed) "
+                "[Campaivaltunoxatch] COMPLETED campaign_id=%s (all outbox entries processed) "
                 "completed=%s dead_letter=%s",
                 campaign_id,
                 status_counts.get('COMPLETED', 0),
@@ -262,7 +262,7 @@ def _check_campaign_completion(campaign_id: Optional[int]):
             )
         else:
             logger.info(
-                "[CampaignBatch] campaign_id=%s still has %d remaining entries "
+                "[Campaivaltunoxatch] campaign_id=%s still has %d remaining entries "
                 "(pending=%d processing=%d failed=%d)",
                 campaign_id, remaining,
                 status_counts.get('PENDING', 0),
@@ -272,7 +272,7 @@ def _check_campaign_completion(campaign_id: Optional[int]):
         conn.close()
     except Exception as e:
         logger.error(
-            "[CampaignBatch] _check_campaign_completion error campaign_id=%s: %s",
+            "[Campaivaltunoxatch] _check_campaign_completion error campaign_id=%s: %s",
             campaign_id, e,
         )
 
@@ -303,14 +303,14 @@ def _log_campaign_final_stats(campaign_id: Optional[int]):
             accounted = sent + failed
             remaining = max(total - accounted, 0) if total else 0
             logger.info(
-                "[CampaignBatch] CAMPAIGN_SUMMARY campaign_id=%s name='%s' status=%s "
+                "[Campaivaltunoxatch] CAMPAIGN_SUMMARY campaign_id=%s name='%s' status=%s "
                 "provider=%s total_recipients=%d emails_sent=%d emails_failed=%d "
                 "emails_remaining=%d",
                 campaign_id, name, status, provider, total, sent, failed, remaining,
             )
             if remaining > 0:
                 logger.info(
-                    "[CampaignBatch] %d out of %d emails still pending for campaign '%s'. "
+                    "[Campaivaltunoxatch] %d out of %d emails still pending for campaign '%s'. "
                     "Possible causes: outbox entries in FAILED/PENDING state awaiting retry, "
                     "leads already marked sent=TRUE (check allow_already_sent), or entries "
                     "skipped by SKIP_ALREADY_SENT / SKIP_CLAIM_FAILED.",
@@ -318,7 +318,7 @@ def _log_campaign_final_stats(campaign_id: Optional[int]):
                 )
     except Exception as e:
         logger.error(
-            "[CampaignBatch] _log_campaign_final_stats error campaign_id=%s: %s",
+            "[Campaivaltunoxatch] _log_campaign_final_stats error campaign_id=%s: %s",
             campaign_id, e,
         )
 

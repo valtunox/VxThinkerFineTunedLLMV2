@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Healthcare Dataset Tests
+VA LLM Specialist Model — Healthcare Dataset Tests
 ====================================================
 
 Author: Joel Otepa Wembo
@@ -351,6 +351,6 @@ class TestClinicalNotesQuality:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Healthcare Dataset Tests")
+    print("VA LLM Specialist Model — Healthcare Dataset Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

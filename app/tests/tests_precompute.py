@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Precompute Functionality Tests
+VA LLM Specialist Model — Precompute Functionality Tests
 =========================================================
 
 Author: Joel Otepa Wembo
@@ -277,6 +277,6 @@ class TestPrecomputeOutput:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Precompute Functionality Tests")
+    print("VA LLM Specialist Model — Precompute Functionality Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

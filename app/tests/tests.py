@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Comprehensive Test Suite
+VA LLM Specialist Model — Comprehensive Test Suite
 ====================================================
 
 Author: Joel Otepa Wembo
@@ -699,6 +699,6 @@ class TestIndustryDomains:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Comprehensive Test Suite")
+    print("VA LLM Specialist Model — Comprehensive Test Suite")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

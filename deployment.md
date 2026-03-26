@@ -1,6 +1,6 @@
-# VaLLM Deployment Guide
+# VA LLM Specialist Model Deployment Guide
 
-This guide covers deployment options for VaLLM (Vector-based Local LLM) on Virtual Machines and Azure Kubernetes Service (AKS).
+This guide covers deployment options for VA LLM Specialist Model on Virtual Machines and Azure Kubernetes Service (AKS).
 
 ## Table of Contents
 
@@ -46,7 +46,7 @@ Ensure the following data files are available in `app/data/`:
 
 ## Architecture Overview
 
-VaLLM is a FastAPI application that provides:
+VA LLM Specialist Model is a FastAPI application that provides:
 - **Vector Search**: FAISS-based semantic search
 - **LLM Inference**: Local model inference (optional)
 - **RAG Pipeline**: Retrieval-Augmented Generation
@@ -56,7 +56,7 @@ VaLLM is a FastAPI application that provides:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    VaLLM Application                      │
+│              VA LLM Specialist Model Application          │
 ├─────────────────────────────────────────────────────────┤
 │  FastAPI Server (Port 8000)                             │
 │  ├── Vector Store (FAISS)                                │

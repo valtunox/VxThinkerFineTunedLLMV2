@@ -1,8 +1,8 @@
-# VaLLM Specialist Model
+# VA LLM Specialist Model
 
 > **Multi-Purpose AI for Document Intelligence & Business Analytics**
 
-A private, production-grade AI specialist model for document verification, financial analysis, billing/invoice processing, accounting automation, and business recommendations. VaLLM is grounded in your organization's actual documents, transactions, and business data to deliver precise, domain-specific intelligence without data leaving your network.
+A private, production-grade AI specialist model for document verification, financial analysis, billing/invoice processing, accounting automation, and business recommendations. VA LLM Specialist Model is grounded in your organization's actual documents, transactions, and business data to deliver precise, domain-specific intelligence without data leaving your network.
 
 **Author**: Joel Otepa Wembo - [joelwembo.com](https://joelwembo.com)
 
@@ -30,7 +30,7 @@ A private, production-grade AI specialist model for document verification, finan
 
 ## Architecture
 
-VaLLM uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reasoning** architecture.
+VA LLM Specialist Model uses a hybrid **RAG (Retrieval-Augmented Generation) + Deterministic Reasoning** architecture.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -401,7 +401,7 @@ Available at `/metrics`:
 ### Grafana Dashboards
 
 Pre-configured dashboards in `monitoring/grafana/dashboards/`:
-- VaLLM Overview
+- VA LLM Specialist Model Overview
 - API Performance
 - Cache Metrics
 - System Health

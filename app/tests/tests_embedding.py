@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Embedding Service Unit Tests
+VA LLM Specialist Model — Embedding Service Unit Tests
 =======================================================
 
 Author: Joel Otepa Wembo
@@ -493,6 +493,6 @@ class TestRerankerAvailability:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Embedding Service Unit Tests")
+    print("VA LLM Specialist Model — Embedding Service Unit Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

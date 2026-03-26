@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model — Customer Service Dataset Tests
+VA LLM Specialist Model — Customer Service Dataset Tests
 =========================================================
 
 Author: Joel Otepa Wembo
@@ -349,6 +349,6 @@ class TestFAQKeywordCoverage:
 
 if __name__ == "__main__":
     print("=" * 70)
-    print("VaLLM Specialist Model — Customer Service Dataset Tests")
+    print("VA LLM Specialist Model — Customer Service Dataset Tests")
     print("=" * 70)
     sys.exit(pytest.main([__file__, "-v", "-s", "--tb=short"]))

@@ -1,5 +1,5 @@
 """
-VaLLM Specialist Model - Multi-Purpose AI for Document Intelligence & Business Analytics
+VA LLM Specialist Model - Multi-Purpose AI for Document Intelligence & Business Analytics
 ==========================================================================================
 
 Author: Joel Otepa Wembo
@@ -10,7 +10,7 @@ XGBoost scoring, SHAP explainability, and multi-agent orchestration.
 
 A sovereign, private AI specialist model for document verification, financial
 analysis, billing/invoice processing, accounting automation, and business
-recommendations. VaLLM is grounded in your organization's actual documents,
+recommendations. VA LLM Specialist Model is grounded in your organization's actual documents,
 transactions, and business data to deliver precise, domain-specific intelligence.
 
 SUPPORTED USE CASES:
@@ -19,7 +19,7 @@ SUPPORTED USE CASES:
     Document Verification & Analysis:
     ---------------------------------
     Q: "Is this invoice authentic? Check for signs of tampering."
-    A: VaLLM runs OCR extraction, cross-references entity data (vendor, amounts,
+    A: VA LLM Specialist Model runs OCR extraction, cross-references entity data (vendor, amounts,
        dates), checks structural consistency, and returns a confidence score with
        risk flags (e.g., mismatched totals, altered dates, unknown vendor).
 
@@ -38,7 +38,7 @@ SUPPORTED USE CASES:
     Financial Analysis & Accounting:
     --------------------------------
     Q: "Reconcile this bank statement against our accounts payable ledger."
-    A: VaLLM matches transactions by amount, date proximity, and reference number,
+    A: VA LLM Specialist Model matches transactions by amount, date proximity, and reference number,
        flagging unmatched items and discrepancies for review.
 
     Q: "Categorize these 500 transactions into expense categories."
@@ -104,7 +104,7 @@ SUPPORTED USE CASES:
 
     Multi-Industry Support:
     -----------------------
-    Q: "Configure VaLLM for healthcare document processing."
+    Q: "Configure VA LLM Specialist Model for healthcare document processing."
     A: The multi-industry engine adapts entity extraction, classification rules,
        and compliance checks for HEALTHCARE, FINANCE, CLOUD, AUTOMATION, or
        CUSTOMER_SERVICE domains.
@@ -112,7 +112,7 @@ SUPPORTED USE CASES:
 ARCHITECTURE:
 =============
     +-------------------------------------------------------------+
-    |                    VaLLM SPECIALIST MODEL                    |
+    |                  VA LLM SPECIALIST MODEL                     |
     +-------------------------------------------------------------+
     |  Embeddings (BGE / all-MiniLM-L6-v2)                        |
     |  Vector Store (FAISS) ---------> Semantic Search             |
@@ -601,7 +601,7 @@ def matrix_print(text: str, style: str = "info"):
 
 def display_matrix_banner():
     """Display Matrix-style startup banner (large, wide logo)"""
-    # VaLLM logo - original then doubled for 2x width
+    # VA LLM logo - original then doubled for 2x width
     raw_lines = [
         "    ██╗   ██╗ █████╗ ██╗     ██╗     ███╗   ███╗",
         "    ██║   ██║██╔══██╗██║     ██║     ████╗ ████║",
@@ -632,7 +632,7 @@ def display_matrix_banner():
         print(banner)
     except UnicodeEncodeError:
         # Simplified banner for consoles with limited character support
-        print("\033[92m    VaLLM - Vector-Augmented Local Language Model\033[0m")
+        print("\033[92m    VA LLM Specialist Model\033[0m")
 
 
 def display_loading_bar(text: str, current: int, total: int):
@@ -884,7 +884,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="VaLLM Specialist Model",
+    title="VA LLM Specialist Model",
     description="Multi-purpose AI for document verification, financial analysis, billing processing, and business recommendations",
     version="1.0.0",
     lifespan=lifespan
@@ -962,14 +962,14 @@ except ImportError as e:
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Display a beautiful status page for the VaLLM service."""
+    """Display a beautiful status page for the VA LLM Specialist Model service."""
     html_content = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VaLLM Specialist — Multi-Industry AI</title>
+    <title>VA LLM Specialist Model</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -1006,7 +1006,7 @@ async def root():
 </head>
 <body>
     <div class="container">
-        <h1>VaLLM Specialist Model</h1>
+        <h1>VA LLM Specialist Model</h1>
         <p class="subtitle">Multi-Industry Fine-Tuned SLM &bull; Production-Grade AI Engine</p>
         <div class="badge">● Online</div>
         <div class="industries">
@@ -1258,11 +1258,10 @@ if __name__ == "__main__":
         except (AttributeError, Exception):
             pass
 
-    port = int(os.getenv("PORT", "8747"))
+    port = int(os.getenv("PORT", "8746"))
     uvicorn.run(
         app,  # Pass the app object directly to avoid double import issues
         host="0.0.0.0",
         port=port,
         reload=False
     )
-

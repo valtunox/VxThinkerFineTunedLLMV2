@@ -226,7 +226,7 @@ QWEN_MODELS = [
         notes="Local HuggingFace model for offline use"
     ),
     ModelInfo(
-        id="Qwen/Qwen2.5-7B-Instruct",
+        id="Qwen/Qwen2.5-3B-Instruct",
         name="Qwen2.5 7B Instruct",
         provider="huggingface",
         model_type=ModelType.LLM,
