@@ -135,7 +135,7 @@
 #           DOCKER_IMAGE=${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
 #           DATABASE_HOST=${{ secrets.DATABASE_HOST || 'db.example.com' }}
 #           DATABASE_PORT=${{ secrets.DATABASE_PORT || '5432' }}
-#           DATABASE_NAME=${{ secrets.DATABASE_NAME || 'recruitment' }}
+#           DATABASE_NAME=${{ secrets.DATABASE_NAME || 'cloudsystem' }}
 #           DATABASE_USER=${{ secrets.DATABASE_USER || 'postgres' }}
 #           DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }}
 #           GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY || '' }}

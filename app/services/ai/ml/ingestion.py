@@ -4,7 +4,7 @@ VaLLM Specialist Model - Ingestion Service.
 Author: Joel Otepa Wembo
 https://joelwembo.com
 
-Document processing, OCR, and compliance validation for uploaded recruitment documents.
+Document processing, OCR, and compliance validation for uploaded cloudsystem documents.
 """
 
 from typing import Dict, Any, List, Optional

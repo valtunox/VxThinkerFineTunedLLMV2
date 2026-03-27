@@ -1,5 +1,5 @@
 """
-Async Celery Service for recruitment, sales, and email campaign operations, supporting Redis and Postgres backends.
+Async Celery Service for cloudsystem, sales, and email campaign operations, supporting Redis and Postgres backends.
 Provides task submission, status, and result retrieval.
 """
 from typing import Any, Dict, Optional
@@ -91,7 +91,7 @@ class CeleryService:
             return True
         return False
     """
-    Async Celery Service for managing distributed tasks (recruitment, sales, email campaigns, resume uploads).
+    Async Celery Service for managing distributed tasks (cloudsystem, sales, email campaigns, resume uploads).
     Supports Redis and Postgres as brokers/backends.
     """
     def __init__(self, redis_client: Any = None, postgres_client: Any = None):

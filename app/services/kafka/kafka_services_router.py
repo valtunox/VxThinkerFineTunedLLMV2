@@ -1,5 +1,5 @@
 """
-FastAPI routes for Kafka event streaming (recruitment, sales, email campaigns, resumes) with Redis and Postgres integration.
+FastAPI routes for Kafka event streaming (cloudsystem, sales, email campaigns, resumes) with Redis and Postgres integration.
 """
 from fastapi import APIRouter, Body, Depends
 from typing import List, Dict, Any

@@ -15,7 +15,7 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_HOST=db.example.com
       - DATABASE_PORT=5432
-      - DATABASE_NAME=recruitment
+      - DATABASE_NAME=cloudsystem
       - DATABASE_USER=postgres
       - DATABASE_PASSWORD=postgres
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}

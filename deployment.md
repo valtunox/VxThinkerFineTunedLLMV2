@@ -101,7 +101,7 @@ VA LLM Specialist Model is a FastAPI application that provides:
    DOCKER_IMAGE=your-registry/va-llm-v1:latest
    DATABASE_HOST=your-db-host
    DATABASE_PORT=5432
-   DATABASE_NAME=recruitment
+   DATABASE_NAME=cloudsystem
    DATABASE_USER=postgres
    DATABASE_PASSWORD=your-password
    GOOGLE_API_KEY=your-key
