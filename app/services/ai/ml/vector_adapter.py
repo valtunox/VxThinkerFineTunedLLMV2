@@ -22,8 +22,12 @@ from abc import ABC, abstractmethod
 import asyncpg
 from asyncpg import Connection, Pool
 
-from core.settings import get_settings
-from core.logging import performance_logger, ai_logger
+try:
+    from app.core.settings import get_settings
+    from app.core.logging import performance_logger, ai_logger
+except ImportError:
+    from core.settings import get_settings
+    from core.logging import performance_logger, ai_logger
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

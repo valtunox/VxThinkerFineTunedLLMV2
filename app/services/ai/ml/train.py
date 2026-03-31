@@ -4,14 +4,16 @@ VaLLM Specialist Model - Training Script.
 Author: Joel Otepa Wembo
 https://joelwembo.com
 
-Fine-tunes a causal LLM on CSV data and documents from
-app/data/datasets/ and exports the trained model to app/data/models/model/.
-Location: app/services/ai/ml/train.py.
+Fine-tunes a causal LLM on IT-specialist CSV data and documents from curated
+folders under app/data/datasets/ and exports the trained model to
+app/data/models/model/. Location: app/services/ai/ml/train.py.
 
-By default the script loads:
-  - All CSV files in app/data/datasets/ (primary: documents.csv)
-  - All documents in app/data/datasets/financial_documents/  (TXT, PDF, DOCX)
-  - All documents in app/data/datasets/business_documents/   (PDF, DOCX, TXT)
+By default the script loads only IT-focused data from:
+  - app/data/datasets/cloud/
+  - app/data/datasets/automation/
+  - app/data/datasets/customer_service/
+  - app/data/datasets/skills/
+  - app/data/datasets/uploaded/
 
 QUICK START (run from project root directory):
 ================================================
@@ -72,6 +74,27 @@ import numpy as np
 import pandas as pd
 import torch
 
+try:
+    from .specialist_profile import (
+        SPECIALIST_PRIMARY_DATASET,
+        SPECIALIST_SYSTEM_PROMPT,
+        allowed_dataset_group_names,
+        dataset_group_for_path,
+        filter_specialist_csv_paths,
+        filter_specialist_document_paths,
+        specialist_source_label,
+    )
+except ImportError:
+    from app.services.ai.ml.specialist_profile import (
+        SPECIALIST_PRIMARY_DATASET,
+        SPECIALIST_SYSTEM_PROMPT,
+        allowed_dataset_group_names,
+        dataset_group_for_path,
+        filter_specialist_csv_paths,
+        filter_specialist_document_paths,
+        specialist_source_label,
+    )
+
 # ============================================================================
 # HARDCODED MODEL CONFIGURATION (causal LM for generation / analysis only)
 # ============================================================================
@@ -123,7 +146,7 @@ class TrainConfig:
 def row_to_text(row: Dict) -> str:
     """Convert one CSV row into a single training text.
 
-    For document analysis and business intelligence data, a compact key/value representation works well.
+    For the IT specialist model, a compact key/value representation works well.
     """
     parts: List[str] = []
     for k, v in row.items():
@@ -136,8 +159,8 @@ def row_to_text(row: Dict) -> str:
 
     # A simple instruction prefix encourages instruction-following behavior.
     return (
-        "You are an AI assistant for document analysis and business intelligence. "
-        "Analyze the following record and provide insights.\n\n"
+        SPECIALIST_SYSTEM_PROMPT
+        + "\n\nAnalyze the following IT or support record and provide a practical answer.\n\n"
         + " | ".join(parts)
         + "\n\nAnswer:"
     )
@@ -176,24 +199,24 @@ def _load_document_text(file_path: Path) -> Optional[str]:
 
 def doc_to_training_text(text: str, source_type: str, file_name: str) -> str:
     """Wrap raw document text in an instruction-style training prompt."""
-    source_label = source_type.replace('_', ' ').title()
+    source_label = specialist_source_label(source_type)
     return (
-        "You are an AI assistant for document analysis and business intelligence. "
-        f"Analyze the following {source_label} and provide insights.\n\n"
+        SPECIALIST_SYSTEM_PROMPT
+        + f"\n\nAnalyze the following {source_label} content and provide IT guidance.\n\n"
         f"Source: {source_label} - {file_name}\n\n"
         f"{text}\n\nAnswer:"
     )
 
 
-def load_documents_as_dataframe(data_dir: Path) -> pd.DataFrame:
-    """Load financial and business documents into a DataFrame with a 'training_text' column.
+def _legacy_load_documents_as_dataframe(data_dir: Path) -> pd.DataFrame:
+    """Load IT-specialist documents into a DataFrame with a 'training_text' column.
 
     The resulting DataFrame has a single column so it can be concatenated with
     CSV frames and processed through the same training pipeline.
     """
     doc_dirs = {
-        'financial_documents': data_dir / 'financial_documents',
-        'business_documents': data_dir / 'business_documents',
+        group_name: data_dir / group_name
+        for group_name in allowed_dataset_group_names()
     }
 
     rows: List[Dict] = []
@@ -225,6 +248,47 @@ def load_documents_as_dataframe(data_dir: Path) -> pd.DataFrame:
 
     if rows:
         print(f"\n  ✅ Loaded {len(rows)} documents for training")
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def load_documents_as_dataframe(data_dir: Path) -> pd.DataFrame:
+    """Load only IT-specialist documents into a DataFrame."""
+    doc_dirs = {
+        group_name: data_dir / group_name
+        for group_name in allowed_dataset_group_names()
+    }
+
+    rows: List[Dict] = []
+
+    for dir_name, dir_path in doc_dirs.items():
+        if not dir_path.exists():
+            continue
+
+        doc_files: List[Path] = []
+        for ext in [".pdf", ".docx", ".doc", ".txt", ".md", ".html"]:
+            doc_files.extend(dir_path.rglob(f"*{ext}"))
+        doc_files = filter_specialist_document_paths(doc_files, data_dir)
+
+        if not doc_files:
+            continue
+
+        label = specialist_source_label(dir_name)
+        print(f"\n  Loading {len(doc_files)} file(s) from {dir_name}/ ({label})")
+        for doc_file in sorted(doc_files):
+            text = _load_document_text(doc_file)
+            if not text:
+                continue
+            rows.append(
+                {
+                    "training_text": doc_to_training_text(text, dir_name, doc_file.stem),
+                    "source": dir_name,
+                    "file_name": doc_file.name,
+                }
+            )
+            print(f"    Loaded {doc_file.name} ({len(text)} chars)")
+
+    if rows:
+        print(f"\n  Loaded {len(rows)} IT documents for training")
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
@@ -421,16 +485,20 @@ def train(cfg: TrainConfig) -> None:
         if not cfg.dataset_dir.exists():
             raise FileNotFoundError(f"Dataset directory not found: {cfg.dataset_dir}")
 
-        csv_paths = sorted(p for p in cfg.dataset_dir.rglob("*.csv") if p.is_file())
+        csv_paths = filter_specialist_csv_paths(list(cfg.dataset_dir.rglob("*.csv")), cfg.dataset_dir)
         if not csv_paths:
-            raise FileNotFoundError(f"No CSV files found in: {cfg.dataset_dir}")
+            raise FileNotFoundError(
+                f"No IT-specialist CSV files found in: {cfg.dataset_dir}. "
+                f"Expected folders: {', '.join(allowed_dataset_group_names())}"
+            )
 
         primary = cfg.dataset_dir / cfg.primary_csv
-        if primary.exists():
+        if primary.exists() and dataset_group_for_path(primary, cfg.dataset_dir):
             csv_paths = [primary] + [p for p in csv_paths if p.resolve() != primary.resolve()]
 
         print(f"  📂 Directory : {cfg.dataset_dir}")
         print(f"  📊 CSV files : {len(csv_paths)}")
+        print(f"  Scope         : {', '.join(allowed_dataset_group_names())}")
         print()
 
         frames = []
@@ -438,11 +506,21 @@ def train(cfg: TrainConfig) -> None:
         for idx, p in enumerate(csv_paths, 1):
             try:
                 frame = pd.read_csv(p, on_bad_lines='warn')
+                try:
+                    relative_path = str(p.resolve().relative_to(cfg.dataset_dir.resolve())).replace("\\", "/")
+                except Exception:
+                    relative_path = p.name
+                frame["_dataset_file"] = relative_path
+                frame["_dataset_group"] = dataset_group_for_path(p, cfg.dataset_dir) or "unknown"
                 row_count = len(frame)
                 col_count = len(frame.columns)
                 total_csv_rows += row_count
                 frames.append(frame)
-                is_primary = " (primary)" if p.name == cfg.primary_csv else ""
+                is_primary = ""
+                try:
+                    is_primary = " (primary)" if p.resolve() == primary.resolve() else ""
+                except Exception:
+                    is_primary = ""
                 print(f"  [{idx}/{len(csv_paths)}] ✓ {p.name}{is_primary}")
                 print(f"           {row_count:,} rows x {col_count} columns")
             except Exception as e:
@@ -670,12 +748,14 @@ def _app_dir() -> Path:
 
 def parse_args() -> TrainConfig:
     _app = _app_dir()
-    parser = argparse.ArgumentParser(description="Fine-tune a causal LM; data from app/data/datasets, output to app/data/models/model")
+    parser = argparse.ArgumentParser(
+        description="Fine-tune a causal LM on IT-specialist data from app/data/datasets and output to app/data/models/model"
+    )
 
     parser.add_argument(
         "--dataset",
         type=str,
-        default=str(_app / "data" / "datasets" / "documents.csv"),
+        default=str(_app / "data" / "datasets" / Path(SPECIALIST_PRIMARY_DATASET)),
         help="Path to training CSV",
     )
     parser.add_argument(
@@ -684,12 +764,12 @@ def parse_args() -> TrainConfig:
         nargs="?",
         const="",
         default=str(_app / "data" / "datasets"),
-        help="If set, train on all CSVs in this folder (recommended)",
+        help="If set, train on IT-specialist CSVs in this folder (recommended)",
     )
     parser.add_argument(
         "--primary-csv",
         type=str,
-        default="documents.csv",
+        default=SPECIALIST_PRIMARY_DATASET,
         help="CSV to prioritize first when training on --dataset-dir",
     )
     parser.add_argument(

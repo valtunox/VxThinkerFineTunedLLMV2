@@ -1,8 +1,8 @@
 # VA LLM Specialist Model
 
-> **Multi-Purpose AI for Document Intelligence & Business Analytics**
+> **IT Specialist AI for Cloud, DevOps, Deployment, Support, and Computer Skills**
 
-A private, production-grade AI specialist model for document verification, financial analysis, billing/invoice processing, accounting automation, and business recommendations. VA LLM Specialist Model is grounded in your organization's actual documents, transactions, and business data to deliver precise, domain-specific intelligence without data leaving your network.
+A private, production-grade AI specialist model for IT operations, cloud engineering, DevOps, deployments, infrastructure support, troubleshooting, networking, security, and technical customer service. VA LLM Specialist Model is grounded in your organization's IT datasets and operational knowledge so it answers as an IT specialist instead of a generalist healthcare or finance model.
 
 **Author**: Joel Otepa Wembo - [joelwembo.com](https://joelwembo.com)
 
@@ -15,7 +15,7 @@ A private, production-grade AI specialist model for document verification, finan
 - [Quick Start](#quick-start)
 - [Step-by-Step Guide](#step-by-step-guide)
   - [Step 1: Environment Setup](#step-1-environment-setup)
-  - [Step 2: Choose Your Industry](#step-2-choose-your-industry)
+  - [Step 2: Confirm Specialist Scope](#step-2-confirm-specialist-scope)
   - [Step 3: Prepare Datasets](#step-3-prepare-datasets)
   - [Step 4: Precompute Embeddings](#step-4-precompute-embeddings)
   - [Step 5: Train the Model](#step-5-train-the-model)
@@ -138,12 +138,17 @@ cp .env.example .env  # Edit with your API keys
 **Key environment variables:**
 
 ```env
-# Industry Selection
-ACTIVE_INDUSTRY=healthcare          # healthcare | finance | cloud | automation | customer_service
+# Specialist Scope
+ACTIVE_INDUSTRY=cloud               # legacy env; runtime scope is IT-specialist only
 
 # LLM Provider (for reasoning API)
 MODEL_PROVIDER=gemini               # ollama | openai | gemini | anthropic | huggingface
 GOOGLE_API_KEY=your-key-here        # Or OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
+
+# Optional live web search enrichment
+VALLM_ENABLE_WEB_SEARCH=true
+VALLM_WEB_SEARCH_PROVIDER=auto      # auto | tavily | serpapi | duckduckgo
+TAVILY_API_KEY=your-key-here
 
 # Database (optional)
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/vallm
@@ -154,19 +159,37 @@ REDIS_URL=redis://localhost:6379/0
 
 ---
 
-### Step 2: Choose Your Industry
+### Step 2: Confirm Specialist Scope
 
-Set your target industry in `.env` or via environment variable:
+This repository is now intentionally IT-only. The default training and indexing
+pipeline loads only these dataset folders:
+
+- `app/data/datasets/cloud/`
+- `app/data/datasets/automation/`
+- `app/data/datasets/customer_service/`
+- `app/data/datasets/skills/`
+- `app/data/datasets/uploaded/`
+
+Healthcare, finance, and generic business datasets are excluded from the
+specialist pipeline by default.
+
+Typical commands:
 
 ```bash
-# Option A: Environment variable
-export ACTIVE_INDUSTRY=finance
+# Precompute IT-only retrieval data
+python -m app.services.ai.ml.precompute
 
-# Option B: CLI flag (overrides .env)
-python app/services/ai/ml/train.py --industry finance
+# Train the IT specialist model
+python -m app.services.ai.ml.train
 
-# Option C: API query parameter (runtime switching)
-curl "http://localhost:8000/api/v1/query?industry=healthcare"
+# Query the IT specialist API with optional web enrichment
+curl -X POST http://localhost:8000/api/models/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Why are IAM access keys not rotated in 90 days?",
+    "use_web_search": true,
+    "web_search_max_results": 5
+  }'
 ```
 
 The service will:
@@ -181,7 +204,7 @@ The service will:
 curl http://localhost:8000/health
 
 # Query endpoint
-curl -X POST http://localhost:8000/api/model/v1/query \
+curl -X POST http://localhost:8000/api/models/v1/query \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Why are IAM access keys not rotated in 90 days?",
@@ -190,7 +213,7 @@ curl -X POST http://localhost:8000/api/model/v1/query \
   }'
 
 # Developer endpoint (Terraform generation)
-curl -X POST http://localhost:8000/api/model/v1/developer \
+curl -X POST http://localhost:8000/api/models/v1/developer \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Create Terraform config for EKS cluster",
@@ -205,32 +228,29 @@ curl -X POST http://localhost:8000/api/model/v1/developer \
 Build a FAISS vector index from your datasets for semantic search:
 
 ```bash
-# Precompute for a specific industry
-python app/services/ai/ml/precompute.py --industry healthcare
+# Precompute the IT specialist corpus
+python -m app.services.ai.ml.precompute
 
-# With custom embedding model
-python app/services/ai/ml/precompute.py \
-  --industry finance \
-  --embedding-model sentence-transformers/all-MiniLM-L6-v2 \
-  --batch-size 128
+# CSV-only precompute
+python -m app.services.ai.ml.precompute --no-documents
 
 # Output:
-#   app/data/vectorstore/healthcare/faiss_index.bin
-#   app/data/vectorstore/healthcare/documents.pkl
+#   app/data/vectorstore/index.faiss
+#   app/data/vectorstore/documents.pkl
 ```
 
 **What happens:**
-1. Loads all CSVs/JSONs from `app/data/datasets/{industry}/`
-2. Converts rows to text using industry-specific templates
+1. Loads only the curated IT dataset folders under `app/data/datasets/`
+2. Converts rows to text for cloud, DevOps, deployment, support, and skills retrieval
 3. Generates embeddings with sentence-transformers
 4. Builds FAISS IndexFlatIP (cosine similarity)
-5. Saves index + documents to `app/data/vectorstore/{industry}/`
+5. Saves index + documents to `app/data/vectorstore/`
 
 ---
 
 ### Step 5: Train the Model
 
-Fine-tune a causal language model on your industry data:
+Fine-tune a causal language model on your IT specialist data:
 
 ```bash
 # Build image

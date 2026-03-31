@@ -35,8 +35,12 @@ except ImportError:
     cosine_similarity = None
     SKLEARN_AVAILABLE = False
 
-from core.settings import get_settings
-from core.logging import performance_logger, ai_logger
+try:
+    from app.core.settings import get_settings
+    from app.core.logging import performance_logger, ai_logger
+except ImportError:
+    from core.settings import get_settings
+    from core.logging import performance_logger, ai_logger
 
 # Conditional import for embedding service
 try:

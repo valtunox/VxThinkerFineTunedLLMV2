@@ -41,6 +41,12 @@ except ImportError:
     FraudDetectionService = None
     fraud_detection_service = None
 
+try:
+    from .web_search import WebSearchService, web_search_service
+except ImportError:
+    WebSearchService = None
+    web_search_service = None
+
 __all__ = [
     "direct_openai",
     "embedding_service",
@@ -51,4 +57,6 @@ __all__ = [
     "ingestion_service",
     "FraudDetectionService",
     "fraud_detection_service",
+    "WebSearchService",
+    "web_search_service",
 ]

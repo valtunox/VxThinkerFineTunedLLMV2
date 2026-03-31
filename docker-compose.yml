@@ -4,13 +4,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: vallmv1
-    image: ${DOCKER_IMAGE:-vallmv1:latest}
+    container_name: va_llm_specialist
+    image: ${DOCKER_IMAGE:-valtunox/va_llm_specialist:latest}
     ports:
-      - "${PORT:-8745}:8745"
+      - "${PORT:-8746}:8746"
     networks:
       - api-network
-      - monitoring-network
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-production}
       - DATABASE_HOST=db.example.com
@@ -33,43 +35,41 @@ services:
       # Prometheus metrics
       - PROMETHEUS_ENABLED=true
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8745/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8746/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 15s
     volumes:
       - ./app/data:/app/data
     depends_on:
       - redis
     restart: unless-stopped
 
-  # Redis - Use this OR connect to external Redis
   redis:
     image: redis:7-alpine
-    container_name: vallm-redis
+    container_name: va_llm_specialist_redis
     ports:
-      - "${REDIS_PORT:-6379}:6379"
-    networks:
-      - api-network
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+      - "6380:6379"
     volumes:
       - redis-data:/data
-    restart: unless-stopped
+    networks:
+      - api-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 3
+    restart: unless-stopped
 
   # Prometheus - Metrics collection
   prometheus:
     image: prom/prometheus:latest
-    container_name: vallm-prometheus
+    container_name: va_llm_specialist_prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "9091:9090"
     networks:
-      - monitoring-network
+      - api-network
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -86,11 +86,11 @@ services:
   # Grafana - Metrics visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: vallm-grafana
+    container_name: va_llm_specialist_grafana
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "3001:3000"
     networks:
-      - monitoring-network
+      - api-network
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
@@ -110,6 +110,4 @@ volumes:
 
 networks:
   api-network:
-    driver: bridge
-  monitoring-network:
     driver: bridge

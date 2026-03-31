@@ -4,14 +4,16 @@ VaLLM Specialist Model - Precompute Script.
 Author: Joel Otepa Wembo
 https://joelwembo.com
 
-Builds the FAISS vector index using the enhanced EmbeddingService. Processes CSV
-files and documents; writes index.faiss and documents.pkl to
+Builds the FAISS vector index using the enhanced EmbeddingService. Processes
+IT-specialist CSV files and documents; writes index.faiss and documents.pkl to
 app/data/vectorstore/. Location: app/services/ai/ml/precompute.py.
 
-By default the script indexes:
-  - All CSV files in app/data/datasets/ (primary: documents.csv)
-  - All documents in app/data/datasets/financial_documents/  (TXT, PDF, DOCX)
-  - All documents in app/data/datasets/business_documents/   (PDF, DOCX, TXT)
+By default the script indexes only IT-focused data from:
+  - app/data/datasets/cloud/
+  - app/data/datasets/automation/
+  - app/data/datasets/customer_service/
+  - app/data/datasets/skills/
+  - app/data/datasets/uploaded/
 
 QUICK START (run from project root directory):
 ================================================
@@ -72,6 +74,25 @@ try:
 except ImportError:
     from app.services.ai.ml.embedding import embedding_service
 
+try:
+    from .specialist_profile import (
+        SPECIALIST_PRIMARY_DATASET,
+        allowed_dataset_group_names,
+        dataset_group_for_path,
+        filter_specialist_csv_paths,
+        filter_specialist_document_paths,
+        specialist_source_label,
+    )
+except ImportError:
+    from app.services.ai.ml.specialist_profile import (
+        SPECIALIST_PRIMARY_DATASET,
+        allowed_dataset_group_names,
+        dataset_group_for_path,
+        filter_specialist_csv_paths,
+        filter_specialist_document_paths,
+        specialist_source_label,
+    )
+
 
 def _fmt_duration(seconds: float) -> str:
     """Format elapsed seconds as a human-readable string."""
@@ -109,15 +130,19 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
 
     if dataset_dir and dataset_dir.exists():
         # Recursively find CSVs in all subdirectories (industry folders)
-        csv_paths = sorted(p for p in dataset_dir.rglob("*.csv") if p.is_file())
+        csv_paths = filter_specialist_csv_paths(list(dataset_dir.rglob("*.csv")), dataset_dir)
         if not csv_paths:
-            raise FileNotFoundError(f"No CSV files found in: {dataset_dir} (searched recursively)")
+            raise FileNotFoundError(
+                f"No IT-specialist CSV files found in: {dataset_dir}. "
+                f"Expected folders: {', '.join(allowed_dataset_group_names())}"
+            )
 
-        if dataset_path.exists():
+        if dataset_path.exists() and dataset_group_for_path(dataset_path, dataset_dir):
             csv_paths = [dataset_path] + [p for p in csv_paths if p.resolve() != dataset_path.resolve()]
 
         print(f"  📂 Directory : {dataset_dir}")
         print(f"  📊 CSV files : {len(csv_paths)}")
+        print(f"  Scope     : {', '.join(allowed_dataset_group_names())}")
         print()
 
         frames = []
@@ -126,6 +151,12 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
             try:
                 file_start = time.time()
                 frame = pd.read_csv(p, on_bad_lines='warn')
+                try:
+                    relative_path = str(p.resolve().relative_to(dataset_dir.resolve())).replace("\\", "/")
+                except Exception:
+                    relative_path = p.name
+                frame["_dataset_file"] = relative_path
+                frame["_dataset_group"] = dataset_group_for_path(p, dataset_dir) or "unknown"
                 row_count = len(frame)
                 col_count = len(frame.columns)
                 total_rows += row_count
@@ -195,7 +226,7 @@ async def process_csv_files(dataset_dir: Path, dataset_path: Path) -> tuple[List
     return texts, metadatas, content_ids
 
 
-async def process_documents(data_dir: Path) -> tuple[List[str], List[Dict], List[str]]:
+async def _legacy_process_documents(data_dir: Path) -> tuple[List[str], List[Dict], List[str]]:
     """Process PDF, DOCX, TXT files from data directories.
 
     Always scans financial_documents/ and business_documents/ (core data).
@@ -293,6 +324,102 @@ async def process_documents(data_dir: Path) -> tuple[List[str], List[Dict], List
             print(f"     {dn}: {ds['success']} docs, {ds['chars']:,} chars")
     else:
         print(f"\n  ⚠️  No documents processed")
+
+    return texts, metadatas, content_ids
+
+
+async def process_documents(data_dir: Path) -> tuple[List[str], List[Dict], List[str]]:
+    """Process only IT-specialist documents from the curated dataset folders."""
+    step_start = time.time()
+    print("\n" + "-" * 70)
+    print("STEP 3: Processing IT specialist documents")
+    print("-" * 70)
+
+    doc_dirs = {
+        group_name: data_dir / group_name
+        for group_name in allowed_dataset_group_names()
+    }
+
+    texts: List[str] = []
+    metadatas: List[Dict] = []
+    content_ids: List[str] = []
+    dir_stats: Dict[str, Dict[str, int]] = {}
+
+    for dir_name, dir_path in doc_dirs.items():
+        if not dir_path.exists():
+            continue
+
+        dir_start = time.time()
+        label = specialist_source_label(dir_name)
+        print(f"\n  Processing {dir_name}/ ({label})")
+
+        doc_files: List[Path] = []
+        for ext in [".pdf", ".docx", ".doc", ".txt", ".md", ".html"]:
+            doc_files.extend(dir_path.rglob(f"*{ext}"))
+        doc_files = filter_specialist_document_paths(doc_files, data_dir)
+
+        if not doc_files:
+            continue
+
+        print(f"     Found {len(doc_files)} document(s)")
+
+        success_count = 0
+        fail_count = 0
+        total_chars = 0
+
+        for idx, doc_file in enumerate(doc_files, 1):
+            try:
+                file_start = time.time()
+                result = await embedding_service.load_and_embed_document(doc_file)
+                file_elapsed = time.time() - file_start
+                if result.get("success"):
+                    doc_text = result["text"]
+                    enriched_text = f"[{label}] {doc_file.stem}\n\n{doc_text}"
+                    texts.append(enriched_text)
+                    content_ids.append(f"{dir_name}_{idx}")
+                    metadatas.append(
+                        {
+                            "source": dir_name,
+                            "dataset_group": dir_name,
+                            "source_label": label,
+                            "file_name": doc_file.name,
+                            "file_path": str(doc_file),
+                            "file_type": result["file_type"],
+                            "text": enriched_text,
+                            "text_length": result["text_length"],
+                        }
+                    )
+                    success_count += 1
+                    total_chars += result["text_length"]
+                    print(
+                        f"     Loaded [{idx}/{len(doc_files)}] {doc_file.name} "
+                        f"({result['text_length']:,} chars, {_fmt_duration(file_elapsed)})"
+                    )
+                else:
+                    fail_count += 1
+                    print(f"     Failed [{idx}/{len(doc_files)}] {doc_file.name}: {result.get('error')}")
+            except Exception as e:
+                fail_count += 1
+                print(f"     Failed [{idx}/{len(doc_files)}] {doc_file.name}: {e}")
+
+        dir_elapsed = time.time() - dir_start
+        dir_stats[dir_name] = {
+            "success": success_count,
+            "failed": fail_count,
+            "chars": total_chars,
+        }
+        print(
+            f"     Summary {dir_name}: {success_count} loaded, {fail_count} failed, "
+            f"{total_chars:,} chars total ({_fmt_duration(dir_elapsed)})"
+        )
+
+    step_elapsed = time.time() - step_start
+    if texts:
+        print(f"\n  Processed {len(texts)} IT documents total in {_fmt_duration(step_elapsed)}")
+        for dir_name, stats in dir_stats.items():
+            print(f"     {dir_name}: {stats['success']} docs, {stats['chars']:,} chars")
+    else:
+        print("\n  No IT documents processed")
 
     return texts, metadatas, content_ids
 
@@ -430,7 +557,7 @@ async def run_precompute(
     skip_embedding_init: bool = False,
 ) -> bool:
     """
-    Run precompute (build FAISS index from CSVs + financial/business documents).
+    Run precompute (build FAISS index from IT-specialist CSVs and documents).
     Callable from app startup.
     Uses default app/data/datasets. Output goes to app/data/vectorstore (via embedding service).
     Returns True on success.
@@ -439,9 +566,12 @@ async def run_precompute(
     base = base_path if base_path is not None else _app_dir
     data_dir = dataset_dir if dataset_dir is not None else base / "data" / "datasets"
     data_dir = Path(data_dir)
-    csvs = sorted(data_dir.rglob("*.csv")) if data_dir.exists() else []
+    csvs = filter_specialist_csv_paths(list(data_dir.rglob("*.csv")), data_dir) if data_dir.exists() else []
     if not csvs:
-        raise FileNotFoundError(f"No CSV files found in: {data_dir}")
+        raise FileNotFoundError(
+            f"No IT-specialist CSV files found in: {data_dir}. "
+            f"Expected folders: {', '.join(allowed_dataset_group_names())}"
+        )
     dataset_path = csvs[0]
 
     args = SimpleNamespace(
@@ -460,25 +590,27 @@ def _app_dir() -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Precompute embeddings and build FAISS index (output: app/data/vectorstore)")
+    parser = argparse.ArgumentParser(
+        description="Precompute embeddings and build a FAISS index from IT-specialist datasets (output: app/data/vectorstore)"
+    )
 
     parser.add_argument(
         "--dataset",
         type=str,
-        default=str(_app_dir() / "data" / "datasets" / "documents.csv"),
+        default=str(_app_dir() / "data" / "datasets" / Path(SPECIALIST_PRIMARY_DATASET)),
         help="Primary CSV dataset",
     )
     parser.add_argument(
         "--dataset-dir",
         type=str,
         default=str(_app_dir() / "data" / "datasets"),
-        help="Directory containing CSV files",
+        help="Directory containing IT-specialist CSV files",
     )
     parser.add_argument(
         "--include-documents",
         action="store_true",
         default=True,
-        help="(Default: enabled) Process financial documents, business documents, and other files",
+        help="(Default: enabled) Process IT specialist documents and knowledge files",
     )
     parser.add_argument(
         "--no-documents",

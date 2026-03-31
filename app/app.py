@@ -1,17 +1,18 @@
 """
-VA LLM Specialist Model - Multi-Purpose AI for Document Intelligence & Business Analytics
-==========================================================================================
+VA LLM Specialist Model - IT Specialist AI for Cloud, DevOps, Support, and Deployment
+======================================================================================
 
 Author: Joel Otepa Wembo
 https://joelwembo.com
 
 FastAPI application with embeddings, FAISS vector search, multi-LLM routing,
-XGBoost scoring, SHAP explainability, and multi-agent orchestration.
+and IT-specialist query endpoints.
 
-A sovereign, private AI specialist model for document verification, financial
-analysis, billing/invoice processing, accounting automation, and business
-recommendations. VA LLM Specialist Model is grounded in your organization's actual documents,
-transactions, and business data to deliver precise, domain-specific intelligence.
+A sovereign, private AI specialist model for cloud operations, DevOps,
+deployments, infrastructure support, troubleshooting, networking, programming,
+and technical customer service. VA LLM Specialist Model is grounded in your
+organization's IT datasets and operational knowledge to deliver precise,
+domain-specific guidance.
 
 SUPPORTED USE CASES:
 ====================
@@ -193,20 +194,24 @@ import json
 import logging
 import time
 import uuid
+import asyncio
+import hashlib
+import threading
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Iterator
 
 import faiss
 import torch
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from starlette.middleware.base import BaseHTTPMiddleware
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 # =============================================================================
 # AUTO-BUILD CONFIGURATION
@@ -215,6 +220,70 @@ from starlette.middleware.base import BaseHTTPMiddleware
 AUTO_PRECOMPUTE = os.getenv("VALLM_AUTO_PRECOMPUTE", "true").lower() == "true"
 # Set to True to automatically run train.py when model is missing (takes longer!)
 AUTO_TRAIN = os.getenv("VALLM_AUTO_TRAIN", "true").lower() == "true"
+
+# =============================================================================
+# INFERENCE CONCURRENCY CONTROL
+# =============================================================================
+# PyTorch model.generate() is a blocking CPU/GPU call. Running it directly
+# inside async def blocks FastAPI's event loop, freezing ALL other requests.
+#
+# Solution:
+#   1. A dedicated ThreadPoolExecutor so inference runs off the event loop.
+#   2. An asyncio.Semaphore to cap simultaneous inference calls (avoids OOM
+#      when multiple requests arrive at once). Adjust MAX_CONCURRENT_INFERS
+#      based on your hardware — 1 is safe on CPU, 2-4 on GPU.
+#
+MAX_CONCURRENT_INFERS = int(os.getenv("VALLM_MAX_CONCURRENT_INFERS", "2"))
+_inference_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_INFERS,
+    thread_name_prefix="vallm-infer",
+)
+# Semaphore is created lazily inside the async context (needs running event loop)
+_inference_semaphore: asyncio.Semaphore | None = None
+# Mutex so tokenizer + model aren't called from two threads simultaneously
+_inference_lock = threading.Lock()
+
+
+def _get_inference_semaphore() -> asyncio.Semaphore:
+    """Return (or lazily create) the inference semaphore."""
+    global _inference_semaphore
+    if _inference_semaphore is None:
+        _inference_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INFERS)
+    return _inference_semaphore
+
+
+# =============================================================================
+# RESPONSE CACHE (LRU)
+# =============================================================================
+# Identical prompts return instantly from cache — no LLM call needed.
+# Cache size = number of unique prompt hashes to keep in memory.
+RESPONSE_CACHE_SIZE = int(os.getenv("VALLM_CACHE_SIZE", "128"))
+_response_cache: dict[str, str] = {}        # hash -> generated text
+_response_cache_order: list[str] = []        # LRU eviction order
+
+
+def _cache_key(prompt: str, max_new_tokens: int, temperature: float) -> str:
+    """Stable hash key for a generation request."""
+    raw = f"{prompt}|{max_new_tokens}|{temperature:.3f}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _cache_get(key: str) -> str | None:
+    if key in _response_cache:
+        _response_cache_order.remove(key)
+        _response_cache_order.append(key)   # move to most-recently-used
+        return _response_cache[key]
+    return None
+
+
+def _cache_set(key: str, value: str) -> None:
+    if key in _response_cache:
+        _response_cache_order.remove(key)
+    elif len(_response_cache) >= RESPONSE_CACHE_SIZE:
+        oldest = _response_cache_order.pop(0)
+        del _response_cache[oldest]
+    _response_cache[key] = value
+    _response_cache_order.append(key)
 
 # =============================================================================
 # LOGGING CONFIGURATION
@@ -338,69 +407,57 @@ def log_response(request_id: str, status_code: int, duration_ms: float, response
         f.write(f"\n{'='*80}\n\n")
 
 
-class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware to log all requests and responses"""
-    
-    async def dispatch(self, request: Request, call_next):
-        # Generate unique request ID
+class RequestLoggingMiddleware:
+    """
+    Pure ASGI logging middleware — does NOT inherit BaseHTTPMiddleware.
+
+    Why: BaseHTTPMiddleware reads and buffers the request body, then replaces
+    request._receive.  When combined with StreamingResponse, Starlette's
+    disconnect-listener tries to call the original receive channel and gets:
+        RuntimeError: Unexpected message received: http.request
+
+    The pure ASGI approach wraps only the *send* channel (to capture the
+    response status code) and never touches receive, so streaming works
+    correctly with zero interference.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         request_id = str(uuid.uuid4())
-        request.state.request_id = request_id
-        
-        # Get client IP
-        client_ip = request.client.host if request.client else "unknown"
-        
-        # Try to get request body for POST requests
-        body = None
-        if request.method in ["POST", "PUT", "PATCH"]:
-            try:
-                body_bytes = await request.body()
-                if body_bytes:
-                    body = json.loads(body_bytes.decode())
-                # Reset body for downstream processing
-                async def receive():
-                    return {"type": "http.request", "body": body_bytes}
-                request._receive = receive
-            except:
-                pass
-        
-        # Log request
-        log_request(
-            request_id=request_id,
-            method=request.method,
-            path=str(request.url.path),
-            client=client_ip,
-            body=body
-        )
-        
-        # Process request and measure time
-        start_time = time.time()
-        
+        method     = scope.get("method", "GET")
+        path       = scope.get("path", "/")
+        client     = scope.get("client") or ("unknown", 0)
+        client_ip  = client[0]
+
+        # Log the incoming request (no body reading — avoids receive interference)
+        log_request(request_id, method, path, client_ip)
+
+        start_time  = time.time()
+        status_code = 500
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", 500)
+                # Inject X-Request-ID header into the response
+                headers = list(message.get("headers", []))
+                headers.append((b"x-request-id", request_id.encode()))
+                message = {**message, "headers": headers}
+            await send(message)
+
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_wrapper)
             duration_ms = (time.time() - start_time) * 1000
-            duration_seconds = duration_ms / 1000
-            
-            # Try to get response body preview
-            response_preview = None
-            
-            # Log response
-            log_response(
-                request_id=request_id,
-                status_code=response.status_code,
-                duration_ms=duration_ms,
-                response_preview=response_preview
-            )
-            
-            # Add request ID to response headers
-            response.headers["X-Request-ID"] = request_id
-            
-            return response
-            
-        except Exception as e:
+            log_response(request_id, status_code, duration_ms)
+        except Exception as exc:
             duration_ms = (time.time() - start_time) * 1000
-            duration_seconds = duration_ms / 1000
-            
-            logger.error(f"✗ Error: {str(e)} | {duration_ms:.2f}ms")
+            logger.error("✗ Error: %s | %.2fms", exc, duration_ms)
             raise
 
 # Support both direct execution and module execution
@@ -818,8 +875,16 @@ async def lifespan(app: FastAPI):
         if model_dir.exists() and (model_dir / "config.json").exists():
             try:
                 tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
-                model = AutoModelForCausalLM.from_pretrained(str(model_dir)).to(device)
-                matrix_print(f"    ✓ LLM model loaded → {device.upper()}", "success")
+                # Use float16 on GPU (2x faster, half RAM) or bfloat16 on modern CPUs.
+                # Falls back to float32 if the hardware doesn't support reduced precision.
+                dtype = torch.float16 if device == "cuda" else (
+                    torch.bfloat16 if torch.cuda.is_available() or hasattr(torch, "bfloat16") else torch.float32
+                )
+                model = AutoModelForCausalLM.from_pretrained(
+                    str(model_dir), torch_dtype=dtype, low_cpu_mem_usage=True
+                ).to(device)
+                model.eval()   # disable dropout — faster + deterministic
+                matrix_print(f"    ✓ LLM model loaded → {device.upper()} ({dtype})", "success")
             except Exception as e:
                 matrix_print(f"    ⚠️  LLM model error: {e}", "warning")
         else:
@@ -885,7 +950,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="VA LLM Specialist Model",
-    description="Multi-purpose AI for document verification, financial analysis, billing processing, and business recommendations",
+    description="IT specialist AI for cloud, DevOps, deployment, support, troubleshooting, and computer systems guidance",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -1157,51 +1222,175 @@ class SearchResult(BaseModel):
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
-    """Generate text using the trained LLM model"""
+    """
+    Generate text using the trained LLM.
+
+    Optimisations vs naïve implementation:
+      - Runs in a ThreadPoolExecutor  → event loop never blocked
+      - asyncio.Semaphore              → at most MAX_CONCURRENT_INFERS calls at once
+      - LRU response cache             → identical prompts return instantly (0 ms)
+      - float16 / bfloat16 model       → 2x faster + half the RAM (loaded at startup)
+      - model.eval()                   → dropout disabled, deterministic, faster
+    """
     global tokenizer, model
-    
+
     if tokenizer is None or model is None:
-        fallback_msg = "Model not loaded. Please run 'python ./app/train.py' first to train and export the model."
+        fallback_msg = "Model not loaded. Please run 'python -m app.services.ai.ml.train' first."
         logger.warning("LLM input/output skipped (model not loaded)")
-        return GenerateResponse(
-            response=fallback_msg,
-            text=fallback_msg,
-            model_loaded=False,
-            device="none"
-        )
-    
+        return GenerateResponse(response=fallback_msg, text=fallback_msg, model_loaded=False, device="none")
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    prompt        = request.prompt
+    max_new_tokens = request.max_new_tokens
+    temperature   = request.temperature
+    top_p         = request.top_p
+
+    # ── Cache hit → instant return ──────────────────────────────────────────
+    cache_key = _cache_key(prompt, max_new_tokens, temperature)
+    cached = _cache_get(cache_key)
+    if cached:
+        logger.info("LLM cache hit (%d chars)", len(cached))
+        return GenerateResponse(response=cached, text=cached, model_loaded=True, device=device)
+
+    logger.info("LLM input: %s", prompt[:500])
+
+    def _run_inference() -> str:
+        with _inference_lock:
+            inputs = tokenizer(prompt, return_tensors="pt").to(device)
+            with torch.no_grad():
+                output = model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    temperature=max(temperature, 1e-4),   # 0 → greedy (fastest)
+                    top_p=top_p,
+                    do_sample=(temperature > 0.01),       # greedy when temp≈0
+                    pad_token_id=tokenizer.eos_token_id,
+                    repetition_penalty=1.1,               # prevents repetition loops
+                )
+            return tokenizer.decode(output[0], skip_special_tokens=True)
+
     try:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"LLM input: {request.prompt}")
-        inputs = tokenizer(request.prompt, return_tensors="pt").to(device)
-        
-        with torch.no_grad():
-            output = model.generate(
-                **inputs,
-                max_new_tokens=request.max_new_tokens,
-                temperature=request.temperature,
-                top_p=request.top_p,
-                do_sample=True,
-                pad_token_id=tokenizer.eos_token_id
-            )
-        
-        generated_text = tokenizer.decode(output[0], skip_special_tokens=True)
-        logger.info(f"LLM output: {generated_text}")
-        
-        return GenerateResponse(
-            response=generated_text,
-            text=generated_text,  # For LangChain compatibility
-            model_loaded=True,
-            device=device
-        )
+        sem = _get_inference_semaphore()
+        async with sem:
+            loop = asyncio.get_event_loop()
+            t0 = time.time()
+            generated_text = await loop.run_in_executor(_inference_executor, _run_inference)
+            elapsed_ms = int((time.time() - t0) * 1000)
+
+        _cache_set(cache_key, generated_text)   # store for next time
+        logger.info("LLM output (%dms, %d chars): %s", elapsed_ms, len(generated_text), generated_text[:200])
+        return GenerateResponse(response=generated_text, text=generated_text, model_loaded=True, device=device)
+
     except Exception as e:
-        error_msg = f"Error generating response: {str(e)}"
-        return GenerateResponse(
-            response=error_msg,
-            text=error_msg,
-            model_loaded=True,
-            device="error"
-        )
+        error_msg = f"Error generating response: {e}"
+        logger.error("LLM generation error: %s", e, exc_info=True)
+        return GenerateResponse(response=error_msg, text=error_msg, model_loaded=True, device="error")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STREAMING ENDPOINT — tokens arrive in real time, like ChatGPT
+#  Clients receive a text/event-stream with data: <token>\n\n lines.
+#  The agent reads this incrementally and forwards each token to the SSE
+#  connection — the user sees text appearing immediately, not after a 60-180s wait.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/generate/stream")
+async def generate_stream(request: GenerateRequest):
+    """
+    Streaming token generation — identical to /generate but returns tokens
+    as a Server-Sent Events (text/event-stream) stream so callers see text
+    appearing in real time instead of waiting for the full response.
+
+    Each SSE line has the format:
+        data: <token text>\\n\\n
+    A final line signals the end:
+        data: [DONE]\\n\\n
+    """
+    global tokenizer, model
+
+    if tokenizer is None or model is None:
+        async def _not_loaded():
+            yield "data: Model not loaded. Run python -m app.services.ai.ml.train\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_not_loaded(), media_type="text/event-stream")
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    prompt        = request.prompt
+    max_new_tokens = request.max_new_tokens
+    temperature   = request.temperature
+    top_p         = request.top_p
+
+    # Cache hit — stream the cached answer word-by-word instantly
+    cache_key = _cache_key(prompt, max_new_tokens, temperature)
+    cached = _cache_get(cache_key)
+    if cached:
+        logger.info("LLM stream cache hit (%d chars)", len(cached))
+        async def _stream_cached():
+            for word in cached.split():
+                yield f"data: {word} \n\n"
+                await asyncio.sleep(0)   # yield control so client receives it
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(_stream_cached(), media_type="text/event-stream")
+
+    logger.info("LLM stream input: %s", prompt[:500])
+
+    # TextIteratorStreamer lets us pull tokens from a background thread
+    streamer = TextIteratorStreamer(
+        tokenizer, skip_prompt=True, skip_special_tokens=True, timeout=300.0
+    )
+
+    full_text_parts: list[str] = []
+
+    def _run_streaming_inference():
+        """Runs model.generate in a thread, pushing tokens into streamer."""
+        try:
+            with _inference_lock:
+                inputs = tokenizer(prompt, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    model.generate(
+                        **inputs,
+                        max_new_tokens=max_new_tokens,
+                        temperature=max(temperature, 1e-4),
+                        top_p=top_p,
+                        do_sample=(temperature > 0.01),
+                        pad_token_id=tokenizer.eos_token_id,
+                        repetition_penalty=1.1,
+                        streamer=streamer,   # ← tokens pushed here as generated
+                    )
+        except Exception as exc:
+            logger.error("Streaming inference error: %s", exc, exc_info=True)
+            streamer.end()
+
+    async def _event_stream() -> Iterator[str]:
+        sem = _get_inference_semaphore()
+        async with sem:
+            # Start inference in background thread
+            loop = asyncio.get_event_loop()
+            infer_future = loop.run_in_executor(_inference_executor, _run_streaming_inference)
+
+            # Pull tokens from the streamer as they arrive
+            for token in streamer:
+                if token:
+                    full_text_parts.append(token)
+                    # Escape newlines so SSE format is preserved
+                    safe_token = token.replace("\n", " ")
+                    yield f"data: {safe_token}\n\n"
+                await asyncio.sleep(0)   # yield event loop between tokens
+
+            await infer_future   # ensure background thread is done
+
+        # Cache the full response for future identical prompts
+        full_text = "".join(full_text_parts)
+        if full_text.strip():
+            _cache_set(cache_key, full_text)
+        logger.info("LLM stream complete (%d chars)", len(full_text))
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/search")
@@ -1259,9 +1448,14 @@ if __name__ == "__main__":
             pass
 
     port = int(os.getenv("PORT", "8746"))
+    # Single worker — model is loaded once in memory and shared across async handlers.
+    # Inference concurrency is managed by _inference_executor + _inference_semaphore.
+    # Do NOT use multiple workers here (each would reload the model, multiplying RAM).
     uvicorn.run(
-        app,  # Pass the app object directly to avoid double import issues
+        app,
         host="0.0.0.0",
         port=port,
-        reload=False
+        reload=False,
+        loop="asyncio",          # explicit asyncio loop (required on Windows)
+        timeout_keep_alive=300,  # keep connections alive during long inference
     )

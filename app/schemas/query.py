@@ -20,6 +20,8 @@ class QueryRequest(BaseModel):
     top_k: int = Field(5, ge=1, le=50, description="Number of results to return")
     threshold: float = Field(0.3, ge=0.0, le=1.0, description="Similarity threshold")
     include_reasoning: bool = Field(True, description="Include chain-of-thought reasoning")
+    use_web_search: bool = Field(True, description="Use live web search to enrich the answer when available")
+    web_search_max_results: int = Field(5, ge=1, le=10, description="Maximum live web results to use")
     workspace_id: Optional[str] = Field(None, description="Optional workspace UUID for scoped queries")
     context: Optional[Dict[str, Any]] = Field(None, description="Additional context for the query")
 
@@ -34,7 +36,9 @@ class QueryResult(BaseModel):
 class QueryResponse(BaseModel):
     """Standard query response."""
     query: str
+    answer: str = ""
     results: List[QueryResult] = []
+    references: List[Dict[str, Any]] = []
     reasoning: Optional[str] = None
     confidence: float = 0.0
     model_version: str = "v1"
@@ -51,6 +55,7 @@ class DeveloperQueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=5000)
     language: Optional[str] = Field(None, description="Programming language context")
     framework: Optional[str] = Field(None, description="Framework context (e.g., terraform, kubernetes)")
+    use_web_search: bool = Field(True, description="Use live web search to enrich the answer when available")
     context: Optional[Dict[str, Any]] = None
 
 
@@ -74,6 +79,7 @@ class TerminalQueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=5000)
     shell: Optional[str] = Field("bash", description="Shell type (bash, zsh, powershell)")
     os_type: Optional[str] = Field("linux", description="Operating system")
+    use_web_search: bool = Field(True, description="Use live web search to enrich the answer when available")
     context: Optional[Dict[str, Any]] = None
 
 

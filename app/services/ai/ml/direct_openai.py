@@ -10,7 +10,11 @@ Direct OpenAI API client that bypasses the LLM router for faster chat completion
 import aiohttp
 import logging
 from typing import Dict, Any, Optional
-from core.settings import get_settings
+
+try:
+    from app.core.settings import get_settings
+except ImportError:
+    from core.settings import get_settings
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

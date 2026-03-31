@@ -58,12 +58,12 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p /app/data /app/backups
 
-# Expose port 8000
-EXPOSE 8000
+# Expose port 8746
+EXPOSE 8746
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8746/health || exit 1
 
 # Run the FastAPI application with uvicorn
-CMD ["uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8746"]

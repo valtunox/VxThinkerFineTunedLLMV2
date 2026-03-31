@@ -56,8 +56,12 @@ try:
 except ImportError:
     HTML_AVAILABLE = False
 
-from core.settings import get_settings
-from core.logging import performance_logger, ai_logger
+try:
+    from app.core.settings import get_settings
+    from app.core.logging import performance_logger, ai_logger
+except ImportError:
+    from core.settings import get_settings
+    from core.logging import performance_logger, ai_logger
 from .vector_adapter import vector_store
 
 settings = get_settings()
