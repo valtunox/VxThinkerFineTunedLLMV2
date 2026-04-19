@@ -141,7 +141,7 @@
           
 #           echo "✅ Deployment package created"
 
-#       # Load CSV data from S3 bucket (data.braincargo.com) into app/data before deploy
+#       # Load CSV data from S3 bucket (data.prodxcloud.com) into app/data before deploy
 #       - name: Configure AWS credentials
 #         uses: aws-actions/configure-aws-credentials@v4
 #         with:
@@ -151,7 +151,7 @@
 
 #       - name: Sync CSV data from S3 to app/data
 #         run: |
-#           S3_DATA_BUCKET="${{ secrets.S3_DATA_BUCKET || 'data.braincargo.com' }}"
+#           S3_DATA_BUCKET="${{ secrets.S3_DATA_BUCKET || 'data.prodxcloud.com' }}"
 #           DATA_DIR="deploy/app/data"
 #           echo "📥 Syncing CSV and data from s3://${S3_DATA_BUCKET}/ to ${DATA_DIR}/..."
 #           aws s3 sync "s3://${S3_DATA_BUCKET}/" "${DATA_DIR}/" \
