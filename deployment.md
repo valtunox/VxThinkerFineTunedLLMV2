@@ -6,7 +6,7 @@ This guide covers deployment options for VA LLM Specialist Model on Virtual Mach
 
 - [Prerequisites](#prerequisites)
 - [Architecture Overview](#architecture-overview)
-- [Deployment Options](#deploymentsdfsdf-options)
+- [Deployment Options](#deployment-options)
   - [Option 1: Virtual Machine Deployment](#option-1-virtual-machine-deployment)
   - [Option 2: Azure Kubernetes Service (AKS) Deployment](#option-2-azure-kubernetes-service-aks-deployment)
 - [CI/CD Pipelines](#cicd-pipelines)
@@ -589,4 +589,3 @@ kubectl rollout undo deployment/va-llm-v1 --to-revision=2 -n va-llm-v1
 - **Application Logs**: `http://your-host:8000/logs`
 
 For issues or questions, check the application logs and health endpoints first.
-sdf

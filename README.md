@@ -2,7 +2,7 @@
 
 > **IT Specialist AI for Cloud, DevOps, Deployment, Support, and Computer Skills**
 
-A private, production-grade AI specialist model for IT operations, cloud engineering, DevOps, deployments, infrastructure support, troubleshooting, networking, security, and technical customer service. VA LLM Specialist Model is grounded in your organization's IT datasets and operational knowledge so it answers as an IT specialist instead of a generalist healthcare or finance model.
+An open-source, production-grade AI specialist model for IT operations, cloud engineering, DevOps, deployments, infrastructure support, troubleshooting, networking, security, and technical customer service. VA LLM Specialist Model is grounded in your organization's IT datasets and operational knowledge so it answers as an IT specialist instead of a generalist healthcare or finance model.
 
 **Author**: Joel Otepa Wembo - [joelwembo.com](https://joelwembo.com)
 
@@ -591,60 +591,20 @@ python -m app.app
 
 ## License
 
-Private - Internal use only.
+BSD 3-Clause License — see [LICENSE](./LICENSE) for details.
+
+© 2026 Joel Otepa Wembo
 
 ---
 
 ## Contributing
 
-1. Create a feature branch
-2. Make changes and add tests
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository and create a feature branch
+2. Make changes and add/update tests
 3. Run linting: `flake8 app/`
-4. Submit pull request
+4. Submit a pull request describing your changes
 
 For detailed deployment instructions, see `deployment.md`.
 
-Summary of what’s in place:
-1. va_llm_v1 – Provision intent API
-New: va_llm_v1/app/services/ai/ml/cloud_routes.py
-POST /api/cloud/provision-intent
-Body: {"query": "user message"}.
-Response:
-Provisioning: query_type: "provisioning", intent (e.g. provision_vm, provision_docker, provision_database, …), payload (Golang-ready dict built from cloud_deployments.csv), confidence, match_prompt.
-Non‑provisioning: query_type one of "incident", "cost", "billing", "security", "recommendation", "other"; intent and payload are null so the agent does not call Golang.
-Uses the existing vector store over cloud_deployments (and any other CSVs). Rows with an intent column are treated as deployment rows; best match is turned into intent + payload via _raw_to_golang_payload() for VM, Kubernetes, Docker, FastAPI, static website, and database.
-app.py
-Registers the cloud router and documents the new endpoint in the API docstring.
-So va_llm_v1 is the place that decides intent and how Golang wants the request; it returns that in the payload for the agent.
-2. Precompute – Tag deployment rows
-app/services/ai/ml/precompute.py
-For each row, if the CSV has an intent column and it’s set, metadata is set with "type": "deployment".
-Lets you later restrict search to deployment rows (e.g. with filter_type="deployment") if you want.
-Re-run precompute after pulling so the FAISS index includes this metadata (and cloud_deployments.csv):
-python -m app.services.ai.ml.precompute from the va_llm_v1 root (with --dataset-dir app/data if you use it).
-3. InfinityAI cloud agent – Call va_llm, validate, then Golang
-InfinityAI/app/services/ai/agents/cloud/agent.py
-fetch_provision_intent(query)
-Calls va_llm_v1 POST /api/cloud/provision-intent.
-URL: env VA_LLM_V1_URL or VALLM_URL (default http://localhost:8002).
-Confidence threshold: PROVISION_INTENT_CONFIDENCE_MIN (default 0.2).
-Flow in handle_deployment_operation:
-LLM (OpenAI/Claude/etc.) still runs first to produce the user-facing reply.
-Call va_llm_v1 provision-intent.
-If query_type == "provisioning" and intent is set and confidence >= PROVISION_INTENT_CONFIDENCE_MIN:
-Use that intent and payload; merge in user_id, workspace_id, session_id, details.
-Trigger Golang via execute_provisioning_service(intent, payload) (unchanged).
-If query_type != "provisioning" (incidents, cost, billing, security, recommendations):
-Do not set intent or call Golang; the LLM reply is the full answer (optionally formatted by the same or another LLM).
-If va_llm_v1 is down or returns no provisioning match:
-Fallback to the existing keyword-based intent + extractors and, when a provisioning intent is found, still call the Golang API.
-So the agent scores/double-checks by only accepting provisioning when va_llm returns query_type=provisioning with sufficient confidence; then it triggers the Golang provisioner. For non‑provisioning, it only uses the LLM to format the answer.
-Flow summary
-User: “Deploy a t2.micro EC2” or “What were last week’s incidents?” or “Any cost recommendations?”
-va_llm_v1 (provision-intent):
-For “Deploy…”: returns query_type: "provisioning", intent, Golang payload.
-For incidents/cost/recommendations: returns query_type: "incident" / "cost" / "recommendation" and no intent/payload.
-Agent:
-Provisioning → merge session/user/workspace into payload → call Golang → then LLM can format the provisioning result for the user.
-Non‑provisioning → no Golang; LLM (OpenAI/Claude/etc.) formats the answer from context (e.g. incidents, cost, security, recommendations).
-Ensure va_llm_v1 is running (e.g. port 8002) and VA_LLM_V1_URL points to it when running the InfinityAI agent. After changing precompute, re-run it and restart va_llm_v1 so the new index is loaded.
